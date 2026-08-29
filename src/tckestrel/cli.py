@@ -227,6 +227,7 @@ def _cmd_submit(
     job_id: str | None,
     validate: bool,
     do_submit: bool,
+    any_site: bool,
 ) -> int:
     try:
         config = load_config(config_path)
@@ -244,6 +245,7 @@ def _cmd_submit(
             condor=default_condor() if do_submit else None,
             validate=validate,
             submit=do_submit,
+            any_site=any_site,
         )
     except (
         ConfigError,
@@ -369,6 +371,12 @@ def build_parser() -> argparse.ArgumentParser:
         dest="do_submit",
         help="contact the schedd (default is dry-run)",
     )
+    submit.add_argument(
+        "--any-site",
+        action="store_true",
+        dest="any_site",
+        help="omit +DESIRED_Sites (match any CMS site)",
+    )
     jobs = sub.add_parser("jobs", help="query campaign jobs on the schedd")
     jobs.add_argument("--config", required=True, help="path to controller YAML")
     jobs.add_argument("--cell", help="SOURCE,DEST")
@@ -407,6 +415,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.job_id,
             args.validate,
             args.do_submit,
+            args.any_site,
         )
     if args.command == "jobs":
         return _cmd_jobs(args.config, args.cell)

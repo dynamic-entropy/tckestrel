@@ -85,7 +85,8 @@ uv run tckestrel rm --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FN
 | `transfer_executable` | `true` |
 | `arguments` | `run job.json` |
 | `transfer_input_files` | `job.json, files.txt` |
-| `+DESIRED_Sites` | dest CMS site |
+| `+DESIRED_Sites` | dest CMS site (omit with `--any-site`) |
+| `+REQUIRED_OS` | `required_os` in the YAML (default `rhel9`) |
 | `x509userproxy` | `X509_USER_PROXY` when that file exists |
 
 `jobs` and `rm` select on `TckestrelCampaign`, optionally `TckestrelSource` and `TckestrelDest`.

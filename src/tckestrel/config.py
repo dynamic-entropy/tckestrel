@@ -41,6 +41,7 @@ class Config:
     xrdhover: Path | None = None
     xrdhover_dir: Path | None = None
     xrdhover_version: str = DEFAULT_XRDHOVER_VERSION
+    required_os: str = "rhel9"
     source_path: Path | None = None
 
 
@@ -69,6 +70,13 @@ def _require_positive_float(name: str, value: object) -> float:
     if number <= 0:
         raise ConfigError(f"{name} must be > 0")
     return number
+
+
+def _require_os(value: object) -> str:
+    text = str(value).strip()
+    if not text:
+        raise ConfigError("required_os must be non-empty")
+    return text
 
 
 def _require_int(name: str, value: object, *, minimum: int) -> int:
@@ -151,5 +159,6 @@ def load_config(path: str | Path) -> Config:
         xrdhover=xrdhover,
         xrdhover_dir=xrdhover_dir,
         xrdhover_version=xrdhover_version,
+        required_os=_require_os(raw.get("required_os", "rhel9")),
         source_path=config_path,
     )

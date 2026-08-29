@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import os
+import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+
+_CLUSTER_RE = re.compile(r"submitted to cluster (\d+)", re.I)
 
 JOB_STATUS = {
     1: "Idle",
@@ -31,6 +35,8 @@ class SubmitSpec:
     run_id: str
     job_id: str
     proxy: Path | None = None
+    required_os: str = "rhel9"
+    desired_sites: str | None = None
 
 
 @dataclass(frozen=True)
@@ -98,19 +104,22 @@ def submit_items(spec: SubmitSpec) -> dict[str, str]:
         "transfer_executable": "true",
         "arguments": "run job.json",
         "transfer_input_files": "job.json, files.txt",
-        "should_transfer_output": "YES",
+        "should_transfer_files": "YES",
         "initialdir": str(spec.job_dir),
         "output": "job.out",
         "error": "job.err",
         "log": "job.log",
         "use_x509userproxy": "true",
-        "+DESIRED_Sites": ad_string(spec.dest),
+        "+REQUIRED_OS": ad_string(spec.required_os),
         "+TckestrelCampaign": ad_string(spec.campaign_id),
         "+TckestrelSource": ad_string(spec.source),
         "+TckestrelDest": ad_string(spec.dest),
         "+TckestrelRunId": ad_string(spec.run_id),
         "+TckestrelJobId": ad_string(spec.job_id),
     }
+    site = spec.dest if spec.desired_sites is None else spec.desired_sites
+    if site:
+        items["+DESIRED_Sites"] = ad_string(site)
     if spec.proxy is not None:
         items["x509userproxy"] = str(spec.proxy)
     return items
@@ -143,18 +152,6 @@ def _import_htcondor():
     return htcondor
 
 
-def _cluster_proc(result: object) -> SubmitResult:
-    cluster = getattr(result, "cluster", None)
-    if callable(cluster):
-        cluster = cluster()
-    proc = getattr(result, "first_proc", None)
-    if callable(proc):
-        proc = proc()
-    if cluster is None:
-        raise CondorError("schedd submit returned no cluster id")
-    return SubmitResult(cluster=int(cluster), proc=int(proc or 0))
-
-
 def _job_from_ad(ad: object) -> CondorJob:
     status = int(ad.get("JobStatus", 0))
     return CondorJob(
@@ -171,14 +168,27 @@ def _job_from_ad(ad: object) -> CondorJob:
 
 class LiveCondor:
     def submit(self, spec: SubmitSpec) -> SubmitResult:
-        htcondor = _import_htcondor()
+        # Site condor_submit: the PyPI htcondor2 Submit() API injects a
+        # CondorVersion >= 25.12 requirement that CMS glideins do not satisfy.
+        sub = spec.job_dir / "job.sub"
+        if not sub.is_file():
+            sub.write_text(submit_text(spec), encoding="utf-8")
         try:
-            result = htcondor.Schedd().submit(htcondor.Submit(submit_items(spec)))
-        except CondorError:
-            raise
-        except Exception as exc:
-            raise CondorError(str(exc)) from exc
-        return _cluster_proc(result)
+            proc = subprocess.run(
+                ["condor_submit", str(sub)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except OSError as exc:
+            raise CondorError(f"condor_submit failed: {exc}") from exc
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "").strip()
+            raise CondorError(f"condor_submit failed ({proc.returncode}): {err}")
+        match = _CLUSTER_RE.search(proc.stdout) or _CLUSTER_RE.search(proc.stderr)
+        if match is None:
+            raise CondorError("condor_submit returned no cluster id")
+        return SubmitResult(cluster=int(match.group(1)), proc=0)
 
     def query(
         self,

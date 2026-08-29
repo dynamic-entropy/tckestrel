@@ -14,6 +14,7 @@ def test_load_fixture_config(fixtures_dir: Path) -> None:
     assert config.max_rate_per_job_gbps == 0.1
     assert config.default_inflight == 1
     assert config.job_duration_s == 7200
+    assert config.required_os == "rhel9"
 
 
 def test_xrdhover_expands_home(tmp_path: Path, fixtures_dir: Path, monkeypatch: object) -> None:

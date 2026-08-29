@@ -46,6 +46,7 @@ def test_submit_text_contract(tmp_path: Path) -> None:
     assert items["arguments"] == "run job.json"
     assert items["transfer_input_files"] == "job.json, files.txt"
     assert items["+DESIRED_Sites"] == '"T1_US_FNAL"'
+    assert items["+REQUIRED_OS"] == '"rhel9"'
     assert items["+TckestrelCampaign"] == '"test-6cell"'
     assert items["+TckestrelSource"] == '"T2_CH_CERN"'
     assert items["+TckestrelDest"] == '"T1_US_FNAL"'
@@ -72,6 +73,23 @@ def test_submit_text_includes_proxy(tmp_path: Path) -> None:
         proxy=proxy,
     )
     assert submit_items(spec)["x509userproxy"] == str(proxy)
+
+
+def test_submit_omits_desired_sites(tmp_path: Path) -> None:
+    spec = SubmitSpec(
+        executable=tmp_path / "xrdhover",
+        job_dir=tmp_path / "job",
+        dest="T1_US_FNAL",
+        campaign_id="c",
+        source="S",
+        run_id="c/S__T1_US_FNAL",
+        job_id="1",
+        desired_sites="",
+    )
+    items = submit_items(spec)
+    assert "+DESIRED_Sites" not in items
+    assert "+REQUIRED_OS" in items
+    assert "DESIRED_Sites" not in submit_text(spec)
 
 
 def test_campaign_constraint() -> None:

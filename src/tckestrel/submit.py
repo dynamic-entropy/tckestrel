@@ -39,7 +39,13 @@ def default_condor() -> CondorBackend:
     return LiveCondor()
 
 
-def make_spec(config: Config, rendered: RenderedJob, executable: Path) -> SubmitSpec:
+def make_spec(
+    config: Config,
+    rendered: RenderedJob,
+    executable: Path,
+    *,
+    any_site: bool = False,
+) -> SubmitSpec:
     return SubmitSpec(
         executable=executable.resolve(),
         job_dir=rendered.job_json.parent.resolve(),
@@ -49,6 +55,8 @@ def make_spec(config: Config, rendered: RenderedJob, executable: Path) -> Submit
         run_id=rendered.run_id,
         job_id=rendered.job_id,
         proxy=proxy_path(),
+        required_os=config.required_os,
+        desired_sites="" if any_site else None,
     )
 
 
@@ -67,6 +75,7 @@ def submit_cell(
     payload: Payload | None = None,
     validate: bool = False,
     submit: bool = False,
+    any_site: bool = False,
 ) -> SubmittedJob:
     try:
         binary = payload or ensure_payload(config, payload_arch_for_dest(dest))
@@ -83,7 +92,7 @@ def submit_cell(
             validate=validate_workload if validate else None,
             xrdhover=binary.path if validate else None,
         )
-        spec = make_spec(config, rendered, binary.path)
+        spec = make_spec(config, rendered, binary.path, any_site=any_site)
         submit_file = rendered.job_json.parent / "job.sub"
         submit_file.write_text(submit_text(spec), encoding="utf-8")
         result = None
