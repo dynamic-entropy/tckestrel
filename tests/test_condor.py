@@ -46,6 +46,14 @@ def test_submit_text_contract(tmp_path: Path) -> None:
     assert items["transfer_executable"] == "true"
     assert items["arguments"] == "run job.json"
     assert items["transfer_input_files"] == "job.json, files.txt"
+    assert items["should_transfer_files"] == "YES"
+    assert items["should_transfer_output"] == "YES"
+    assert items["when_to_transfer_output"] == "ON_EXIT_OR_EVICT"
+    assert items["output"] == "logs/$(Cluster).$(Process).out"
+    assert items["error"] == "logs/$(Cluster).$(Process).err"
+    assert items["log"] == "logs/$(Cluster).$(Process).log"
+    assert items["job_machine_attrs"] == "GLIDEIN_CMSSite"
+    assert items["x509userproxy"] == "$ENV(X509_USER_PROXY)"
     assert items["+DESIRED_Sites"] == '"T1_US_FNAL"'
     assert items["+REQUIRED_OS"] == '"rhel9"'
     assert items["+TckestrelCampaign"] == '"test-6cell"'
@@ -57,7 +65,6 @@ def test_submit_text_contract(tmp_path: Path) -> None:
     assert items["request_cpus"] == "1"
     assert items["request_memory"] == "2048MB"
     assert items["request_disk"] == "2048MB"
-    assert "x509userproxy" not in items
     assert text.endswith("queue\n")
     assert "transfer_executable" in text and "= true" in text
     assert "arguments" in text and "run job.json" in text
@@ -76,7 +83,7 @@ def test_submit_text_includes_proxy(tmp_path: Path) -> None:
         job_id="1",
         proxy=proxy,
     )
-    assert submit_items(spec)["x509userproxy"] == str(proxy)
+    assert submit_items(spec)["x509userproxy"] == "$ENV(X509_USER_PROXY)"
 
 
 def test_condor_argv_remote_pool() -> None:
@@ -140,6 +147,10 @@ def test_submit_cell_dry_run_writes_sub(
     assert str(result.spec.executable) in text
     assert (tmp_path / "job" / "job.json").is_file()
     assert (tmp_path / "job" / "files.txt").is_file()
+    assert (tmp_path / "job" / "logs").is_dir()
+    assert "logs/$(Cluster).$(Process).out" in text
+    assert str((fixtures_dir / "campaign" / ".tckestrel" / "condor.log").resolve()) in text
+    assert "when_to_transfer_output" in text
     assert "request_memory" in text
 
 

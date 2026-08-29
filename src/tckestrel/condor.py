@@ -11,6 +11,8 @@ from typing import Protocol
 
 _CLUSTER_RE = re.compile(r"submitted to cluster (\d+)", re.I)
 
+LOG_DIR = "logs"
+
 JOB_STATUS = {
     1: "Idle",
     2: "Running",
@@ -39,6 +41,7 @@ class SubmitSpec:
     request_cpus: int = 1
     request_memory_mb: int = 2048
     request_disk_mb: int = 2048
+    event_log: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -107,11 +110,17 @@ def submit_items(spec: SubmitSpec) -> dict[str, str]:
         "arguments": "run job.json",
         "transfer_input_files": "job.json, files.txt",
         "should_transfer_files": "YES",
+        "should_transfer_output": "YES",
+        "when_to_transfer_output": "ON_EXIT_OR_EVICT",
         "initialdir": str(spec.job_dir),
-        "output": "job.out",
-        "error": "job.err",
-        "log": "job.log",
+        "output": f"{LOG_DIR}/$(Cluster).$(Process).out",
+        "error": f"{LOG_DIR}/$(Cluster).$(Process).err",
+        "log": str(spec.event_log)
+        if spec.event_log is not None
+        else f"{LOG_DIR}/$(Cluster).$(Process).log",
+        "job_machine_attrs": "GLIDEIN_CMSSite",
         "use_x509userproxy": "true",
+        "x509userproxy": "$ENV(X509_USER_PROXY)",
         "request_cpus": str(spec.request_cpus),
         "request_memory": f"{spec.request_memory_mb}MB",
         "request_disk": f"{spec.request_disk_mb}MB",
@@ -123,8 +132,6 @@ def submit_items(spec: SubmitSpec) -> dict[str, str]:
         "+TckestrelJobId": ad_string(spec.job_id),
         "+DESIRED_Sites": ad_string(spec.dest),
     }
-    if spec.proxy is not None:
-        items["x509userproxy"] = str(spec.proxy)
     return items
 
 

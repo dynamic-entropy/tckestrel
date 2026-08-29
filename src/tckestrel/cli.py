@@ -10,7 +10,7 @@ from pathlib import Path
 
 from tckestrel.cache import PrefixCache
 from tckestrel.campaign import CampaignError
-from tckestrel.condor import CondorError, CondorJob, campaign_constraint
+from tckestrel.condor import LOG_DIR, CondorError, CondorJob, campaign_constraint
 from tckestrel.config import ConfigError, load_config
 from tckestrel.matrix import MatrixError
 from tckestrel.payload import (
@@ -210,7 +210,10 @@ def format_submit(result: SubmittedJob) -> str:
         f"executable {result.spec.executable}",
         f"job.sub   {result.submit_file}",
         f"job.json  {result.rendered.job_json}",
+        f"logs      {result.spec.job_dir / LOG_DIR}",
     ]
+    if result.spec.event_log is not None:
+        lines.append(f"event_log {result.spec.event_log}")
     if result.result is None:
         lines.append("submitted false")
     else:

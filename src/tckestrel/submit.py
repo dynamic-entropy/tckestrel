@@ -7,6 +7,7 @@ from pathlib import Path
 
 from tckestrel.cache import PrefixCache
 from tckestrel.condor import (
+    LOG_DIR,
     CondorBackend,
     CondorError,
     LiveCondor,
@@ -63,6 +64,11 @@ def make_spec(
         request_cpus=config.request_cpus,
         request_memory_mb=config.request_memory_mb,
         request_disk_mb=config.request_disk_mb,
+        event_log=(
+            config.filelists_dir / ".tckestrel" / "condor.log"
+            if config.filelists_dir is not None
+            else None
+        ),
     )
 
 
@@ -98,6 +104,9 @@ def submit_cell(
             xrdhover=binary.path if validate else None,
         )
         spec = make_spec(config, rendered, binary.path)
+        (spec.job_dir / LOG_DIR).mkdir(parents=True, exist_ok=True)
+        if spec.event_log is not None:
+            spec.event_log.parent.mkdir(parents=True, exist_ok=True)
         submit_file = rendered.job_json.parent / "job.sub"
         submit_file.write_text(submit_text(spec), encoding="utf-8")
         result = None

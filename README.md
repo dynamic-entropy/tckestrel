@@ -87,6 +87,12 @@ uv run tckestrel rm --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FN
 | `transfer_executable` | `true` |
 | `arguments` | `run job.json` |
 | `transfer_input_files` | `job.json, files.txt` |
+| `should_transfer_output` | `YES` (`results/` and stdout/stderr back to the job dir) |
+| `when_to_transfer_output` | `ON_EXIT_OR_EVICT` |
+| `output` / `error` | `logs/$(Cluster).$(Process).{out,err}` under the job dir |
+| `log` | `{filelists_dir}/.tckestrel/condor.log` (campaign event log) |
+| `job_machine_attrs` | `GLIDEIN_CMSSite` (copied onto the job as `MachineAttrGLIDEIN_CMSSite0`) |
+| `x509userproxy` | `$ENV(X509_USER_PROXY)` |
 | `request_cpus` | `request_cpus` in the YAML (default `1`) |
 | `request_memory` | `request_memory_mb` (default `2048`) |
 | `request_disk` | `request_disk_mb` (default `2048`) |
