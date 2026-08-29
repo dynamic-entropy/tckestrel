@@ -1,0 +1,192 @@
+from pathlib import Path
+
+from tckestrel.cache import PrefixCache
+from tckestrel.condor import (
+    RecordingCondor,
+    SubmitSpec,
+    campaign_constraint,
+    submit_items,
+    submit_text,
+)
+from tckestrel.config import load_config
+from tckestrel.payload import Payload
+from tckestrel.rucio_backend import MappingBackend
+from tckestrel.submit import submit_cell
+
+CERN_LFN = "/store/mc/PREMIX/cern-fnal.root"
+CERN_PFN = "root://eoscms.cern.ch:1094//eos/cms/store/mc/PREMIX/cern-fnal.root"
+
+
+def _payload(tmp_path: Path) -> Payload:
+    binary = tmp_path / "xrdhover"
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    binary.chmod(0o755)
+    return Payload(path=binary, version="0.2.0", arch="linux-amd64", fetched=False)
+
+
+def _spec(tmp_path: Path) -> SubmitSpec:
+    job_dir = tmp_path / "job"
+    job_dir.mkdir(exist_ok=True)
+    return SubmitSpec(
+        executable=tmp_path / "xrdhover",
+        job_dir=job_dir,
+        dest="T1_US_FNAL",
+        campaign_id="test-6cell",
+        source="T2_CH_CERN",
+        run_id="test-6cell/T2_CH_CERN__T1_US_FNAL",
+        job_id="job.0",
+    )
+
+
+def test_submit_text_contract(tmp_path: Path) -> None:
+    text = submit_text(_spec(tmp_path))
+    items = submit_items(_spec(tmp_path))
+    assert items["universe"] == "vanilla"
+    assert items["transfer_executable"] == "true"
+    assert items["arguments"] == "run job.json"
+    assert items["transfer_input_files"] == "job.json, files.txt"
+    assert items["+DESIRED_Sites"] == '"T1_US_FNAL"'
+    assert items["+TckestrelCampaign"] == '"test-6cell"'
+    assert items["+TckestrelSource"] == '"T2_CH_CERN"'
+    assert items["+TckestrelDest"] == '"T1_US_FNAL"'
+    assert items["+TckestrelRunId"] == '"test-6cell/T2_CH_CERN__T1_US_FNAL"'
+    assert items["+TckestrelJobId"] == '"job.0"'
+    assert items["use_x509userproxy"] == "true"
+    assert "x509userproxy" not in items
+    assert text.endswith("queue\n")
+    assert "transfer_executable" in text and "= true" in text
+    assert "arguments" in text and "run job.json" in text
+
+
+def test_submit_text_includes_proxy(tmp_path: Path) -> None:
+    proxy = tmp_path / "x509up"
+    proxy.write_text("proxy", encoding="utf-8")
+    spec = SubmitSpec(
+        executable=tmp_path / "xrdhover",
+        job_dir=tmp_path / "job",
+        dest="T1_US_FNAL",
+        campaign_id="c",
+        source="S",
+        run_id="c/S__T1_US_FNAL",
+        job_id="1",
+        proxy=proxy,
+    )
+    assert submit_items(spec)["x509userproxy"] == str(proxy)
+
+
+def test_campaign_constraint() -> None:
+    assert campaign_constraint("camp") == 'TckestrelCampaign == "camp"'
+    assert campaign_constraint("camp", dest="T1_US_FNAL") == (
+        'TckestrelCampaign == "camp" && TckestrelDest == "T1_US_FNAL"'
+    )
+    assert campaign_constraint("camp", "T2_CH_CERN", "T1_US_FNAL") == (
+        'TckestrelCampaign == "camp" && TckestrelSource == "T2_CH_CERN" '
+        '&& TckestrelDest == "T1_US_FNAL"'
+    )
+
+
+def test_submit_cell_dry_run_writes_sub(
+    fixtures_dir: Path, tmp_path: Path, monkeypatch: object
+) -> None:
+    monkeypatch.delenv("X509_USER_PROXY", raising=False)
+    config = load_config(fixtures_dir / "controller.yaml")
+    recorder = RecordingCondor()
+    result = submit_cell(
+        config,
+        "T2_CH_CERN",
+        "T1_US_FNAL",
+        limit=1,
+        job_id="dry.0",
+        out_dir=tmp_path / "job",
+        backend=MappingBackend({CERN_LFN: CERN_PFN}),
+        cache=PrefixCache(tmp_path / "cache.json"),
+        condor=recorder,
+        payload=_payload(tmp_path),
+        submit=False,
+    )
+    assert result.result is None
+    assert recorder.submitted == []
+    text = result.submit_file.read_text(encoding="utf-8")
+    assert "run job.json" in text
+    assert '+DESIRED_Sites' in text
+    assert '"T1_US_FNAL"' in text
+    assert str(result.spec.executable) in text
+    assert (tmp_path / "job" / "job.json").is_file()
+    assert (tmp_path / "job" / "files.txt").is_file()
+
+
+def test_submit_cell_queues_via_backend(
+    fixtures_dir: Path, tmp_path: Path, monkeypatch: object
+) -> None:
+    monkeypatch.delenv("X509_USER_PROXY", raising=False)
+    config = load_config(fixtures_dir / "controller.yaml")
+    recorder = RecordingCondor()
+    result = submit_cell(
+        config,
+        "T2_CH_CERN",
+        "T1_US_FNAL",
+        limit=1,
+        job_id="live.0",
+        out_dir=tmp_path / "job",
+        backend=MappingBackend({CERN_LFN: CERN_PFN}),
+        cache=PrefixCache(tmp_path / "cache.json"),
+        condor=recorder,
+        payload=_payload(tmp_path),
+        submit=True,
+    )
+    assert result.result is not None
+    assert result.result.cluster_proc == "100.0"
+    assert len(recorder.submitted) == 1
+    assert recorder.submitted[0].dest == "T1_US_FNAL"
+    assert recorder.submitted[0].job_id == "live.0"
+    rows = recorder.query("test-6cell", dest="T1_US_FNAL")
+    assert len(rows) == 1
+    assert rows[0].status == "Idle"
+
+
+def test_recording_query_and_remove() -> None:
+    condor = RecordingCondor()
+    condor.submit(
+        SubmitSpec(
+            executable=Path("/bin/xrdhover"),
+            job_dir=Path("/tmp"),
+            dest="T1_US_FNAL",
+            campaign_id="camp",
+            source="T2_CH_CERN",
+            run_id="camp/T2_CH_CERN__T1_US_FNAL",
+            job_id="a",
+        )
+    )
+    condor.submit(
+        SubmitSpec(
+            executable=Path("/bin/xrdhover"),
+            job_dir=Path("/tmp"),
+            dest="T1_DE_KIT",
+            campaign_id="camp",
+            source="T2_CH_CERN",
+            run_id="camp/T2_CH_CERN__T1_DE_KIT",
+            job_id="b",
+        )
+    )
+    condor.submit(
+        SubmitSpec(
+            executable=Path("/bin/xrdhover"),
+            job_dir=Path("/tmp"),
+            dest="T1_US_FNAL",
+            campaign_id="other",
+            source="T2_CH_CERN",
+            run_id="other/T2_CH_CERN__T1_US_FNAL",
+            job_id="c",
+        )
+    )
+    assert len(condor.query("camp")) == 2
+    assert len(condor.query("camp", dest="T1_US_FNAL")) == 1
+    removed = condor.remove("camp", dest="T1_US_FNAL")
+    assert removed == 1
+    assert [job.job_id for job in condor.query("camp")] == ["b"]
+    assert condor.query("other")[0].job_id == "c"
+    assert condor.removed == [
+        'TckestrelCampaign == "camp" && TckestrelDest == "T1_US_FNAL"'
+    ]
+    assert condor.remove("camp") == 1
+    assert condor.query("camp") == []

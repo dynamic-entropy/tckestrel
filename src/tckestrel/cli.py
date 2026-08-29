@@ -10,9 +10,9 @@ from pathlib import Path
 
 from tckestrel.cache import PrefixCache
 from tckestrel.campaign import CampaignError
+from tckestrel.condor import CondorError, CondorJob, campaign_constraint
 from tckestrel.config import ConfigError, load_config
 from tckestrel.matrix import MatrixError
-from tckestrel.plan import PlanError, PlannedCell, build_plan, has_missing
 from tckestrel.payload import (
     DEFAULT_ARCH,
     Payload,
@@ -20,6 +20,7 @@ from tckestrel.payload import (
     ensure_payload,
     payload_arch_for_dest,
 )
+from tckestrel.plan import PlanError, PlannedCell, build_plan, has_missing
 from tckestrel.render import RenderError, RenderedJob, render_cell, validate_workload
 from tckestrel.resolve import (
     ResolveError,
@@ -29,6 +30,7 @@ from tckestrel.resolve import (
     parse_cell,
     resolve_cell,
 )
+from tckestrel.submit import SubmitError, SubmittedJob, default_condor, submit_cell
 
 HEADERS = (
     "source",
@@ -199,6 +201,117 @@ def _cmd_render(
     return 0
 
 
+def format_submit(result: SubmittedJob) -> str:
+    lines = [
+        f"source    {result.rendered.source}",
+        f"dest      {result.rendered.dest}",
+        f"run_id    {result.rendered.run_id}",
+        f"job_id    {result.rendered.job_id}",
+        f"executable {result.spec.executable}",
+        f"job.sub   {result.submit_file}",
+        f"job.json  {result.rendered.job_json}",
+    ]
+    if result.result is None:
+        lines.append("submitted false")
+    else:
+        lines.append(f"submitted {result.result.cluster_proc}")
+    return "\n".join(lines)
+
+
+def _cmd_submit(
+    config_path: str,
+    cell: str,
+    limit: int,
+    site_map: str | None,
+    out: str | None,
+    job_id: str | None,
+    validate: bool,
+    do_submit: bool,
+) -> int:
+    try:
+        config = load_config(config_path)
+        source, dest = parse_cell(cell)
+        result = submit_cell(
+            config,
+            source,
+            dest,
+            limit=limit,
+            job_id=job_id,
+            out_dir=Path(out) if out else None,
+            backend=default_backend(),
+            cache=PrefixCache(cache_file(config)),
+            site_map=Path(site_map) if site_map else None,
+            condor=default_condor() if do_submit else None,
+            validate=validate,
+            submit=do_submit,
+        )
+    except (
+        ConfigError,
+        MatrixError,
+        CampaignError,
+        PlanError,
+        ResolveError,
+        RenderError,
+        PayloadError,
+        SubmitError,
+        CondorError,
+    ) as exc:
+        print(f"tckestrel submit: {exc}", file=sys.stderr)
+        return 1
+    print(format_submit(result))
+    return 0
+
+
+def format_jobs(rows: list[CondorJob]) -> str:
+    headers = ("cluster", "status", "source", "dest", "job_id")
+    body = [
+        [
+            f"{row.cluster}.{row.proc}",
+            row.status,
+            row.source,
+            row.dest,
+            row.job_id,
+        ]
+        for row in rows
+    ]
+    widths = [len(h) for h in headers]
+    for fields in body:
+        for i, field in enumerate(fields):
+            widths[i] = max(widths[i], len(field))
+    lines = ["  ".join(h.ljust(widths[i]) for i, h in enumerate(headers))]
+    for fields in body:
+        lines.append("  ".join(fields[i].ljust(widths[i]) for i in range(len(headers))))
+    return "\n".join(lines)
+
+
+def _cmd_jobs(config_path: str, cell: str | None) -> int:
+    try:
+        config = load_config(config_path)
+        source = dest = None
+        if cell:
+            source, dest = parse_cell(cell)
+        rows = default_condor().query(config.campaign_id, source, dest)
+    except (ConfigError, ResolveError, CondorError) as exc:
+        print(f"tckestrel jobs: {exc}", file=sys.stderr)
+        return 1
+    print(format_jobs(rows))
+    return 0
+
+
+def _cmd_rm(config_path: str, cell: str | None) -> int:
+    try:
+        config = load_config(config_path)
+        source = dest = None
+        if cell:
+            source, dest = parse_cell(cell)
+        removed = default_condor().remove(config.campaign_id, source, dest)
+    except (ConfigError, ResolveError, CondorError) as exc:
+        print(f"tckestrel rm: {exc}", file=sys.stderr)
+        return 1
+    print(f"removed {removed}  {campaign_constraint(config.campaign_id, source, dest)}")
+    return 0
+
+
 def _cmd_plan(config_path: str) -> int:
     try:
         config = load_config(config_path)
@@ -242,6 +355,26 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="run xrdhover validate on the written job.json",
     )
+    submit = sub.add_parser("submit", help="write a Condor submit file; --submit to queue it")
+    submit.add_argument("--config", required=True, help="path to controller YAML")
+    submit.add_argument("--cell", required=True, help="SOURCE,DEST")
+    submit.add_argument("--limit", type=int, default=3, help="LFNs to stamp (default 3)")
+    submit.add_argument("--site-map", dest="site_map", help="site_map.csv when the sidecar has no rse column")
+    submit.add_argument("--out", help="directory for job.json, files.txt, and job.sub")
+    submit.add_argument("--job-id", dest="job_id", help="sinks.job_id (default: new UUID)")
+    submit.add_argument("--validate", action="store_true", help="run xrdhover validate before submit")
+    submit.add_argument(
+        "--submit",
+        action="store_true",
+        dest="do_submit",
+        help="contact the schedd (default is dry-run)",
+    )
+    jobs = sub.add_parser("jobs", help="query campaign jobs on the schedd")
+    jobs.add_argument("--config", required=True, help="path to controller YAML")
+    jobs.add_argument("--cell", help="SOURCE,DEST")
+    rm = sub.add_parser("rm", help="condor_rm by campaign ClassAd")
+    rm.add_argument("--config", required=True, help="path to controller YAML")
+    rm.add_argument("--cell", help="SOURCE,DEST")
     return parser
 
 
@@ -264,5 +397,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.job_id,
             args.validate,
         )
+    if args.command == "submit":
+        return _cmd_submit(
+            args.config,
+            args.cell,
+            args.limit,
+            args.site_map,
+            args.out,
+            args.job_id,
+            args.validate,
+            args.do_submit,
+        )
+    if args.command == "jobs":
+        return _cmd_jobs(args.config, args.cell)
+    if args.command == "rm":
+        return _cmd_rm(args.config, args.cell)
     parser.error(f"unknown command: {args.command}")
     return 2

@@ -1,6 +1,8 @@
 from pathlib import Path
 
 from tckestrel.cli import main
+from tckestrel.condor import RecordingCondor, SubmitSpec
+from tckestrel.payload import Payload
 from tckestrel.rucio_backend import MappingBackend
 
 
@@ -138,6 +140,143 @@ def test_render_cli_writes_job(
     assert "17Mbps" in (out / "job.json").read_text(encoding="utf-8")
     assert "auto" not in (out / "job.json").read_text(encoding="utf-8")
     assert str(out / "job.json") in captured.out
+
+
+def test_submit_cli_dry_run_writes_sub(
+    tmp_path: Path, fixtures_dir: Path, capsys: object, monkeypatch: object
+) -> None:
+    backend = MappingBackend(
+        {
+            "/store/mc/PREMIX/cern-fnal.root": (
+                "root://eoscms.cern.ch:1094//eos/cms/store/mc/PREMIX/cern-fnal.root"
+            )
+        }
+    )
+    binary = tmp_path / "xrdhover"
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    binary.chmod(0o755)
+    monkeypatch.delenv("X509_USER_PROXY", raising=False)
+    monkeypatch.setattr("tckestrel.cli.default_backend", lambda: backend)
+    monkeypatch.setattr(
+        "tckestrel.cli.cache_file", lambda config: tmp_path / "rse_prefix.json"
+    )
+    monkeypatch.setattr(
+        "tckestrel.submit.ensure_payload",
+        lambda config, arch: Payload(
+            path=binary, version="0.2.0", arch=arch, fetched=False
+        ),
+    )
+    out = tmp_path / "submitted"
+    code = main(
+        [
+            "submit",
+            "--config",
+            str(fixtures_dir / "controller.yaml"),
+            "--cell",
+            "T2_CH_CERN,T1_US_FNAL",
+            "--limit",
+            "1",
+            "--out",
+            str(out),
+            "--job-id",
+            "cli.sub.0",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert (out / "job.sub").is_file()
+    assert "submitted false" in captured.out
+    text = (out / "job.sub").read_text(encoding="utf-8")
+    assert "+DESIRED_Sites" in text
+    assert '"T1_US_FNAL"' in text
+    assert "run job.json" in text
+
+
+def test_submit_cli_queues_with_mock(
+    tmp_path: Path, fixtures_dir: Path, capsys: object, monkeypatch: object
+) -> None:
+    backend = MappingBackend(
+        {
+            "/store/mc/PREMIX/cern-fnal.root": (
+                "root://eoscms.cern.ch:1094//eos/cms/store/mc/PREMIX/cern-fnal.root"
+            )
+        }
+    )
+    binary = tmp_path / "xrdhover"
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    binary.chmod(0o755)
+    recorder = RecordingCondor()
+    monkeypatch.delenv("X509_USER_PROXY", raising=False)
+    monkeypatch.setattr("tckestrel.cli.default_backend", lambda: backend)
+    monkeypatch.setattr(
+        "tckestrel.cli.cache_file", lambda config: tmp_path / "rse_prefix.json"
+    )
+    monkeypatch.setattr("tckestrel.cli.default_condor", lambda: recorder)
+    monkeypatch.setattr(
+        "tckestrel.submit.ensure_payload",
+        lambda config, arch: Payload(
+            path=binary, version="0.2.0", arch=arch, fetched=False
+        ),
+    )
+    code = main(
+        [
+            "submit",
+            "--config",
+            str(fixtures_dir / "controller.yaml"),
+            "--cell",
+            "T2_CH_CERN,T1_US_FNAL",
+            "--limit",
+            "1",
+            "--out",
+            str(tmp_path / "queued"),
+            "--job-id",
+            "cli.q.0",
+            "--submit",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "submitted 100.0" in captured.out
+    assert len(recorder.submitted) == 1
+    assert recorder.submitted[0].job_id == "cli.q.0"
+
+
+def test_jobs_and_rm_cli(
+    tmp_path: Path, fixtures_dir: Path, capsys: object, monkeypatch: object
+) -> None:
+    recorder = RecordingCondor()
+    recorder.submit(
+        SubmitSpec(
+            executable=tmp_path / "xrdhover",
+            job_dir=tmp_path,
+            dest="T1_US_FNAL",
+            campaign_id="test-6cell",
+            source="T2_CH_CERN",
+            run_id="test-6cell/T2_CH_CERN__T1_US_FNAL",
+            job_id="listed.0",
+        )
+    )
+    monkeypatch.setattr("tckestrel.cli.default_condor", lambda: recorder)
+    code = main(["jobs", "--config", str(fixtures_dir / "controller.yaml")])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "100.0" in captured.out
+    assert "listed.0" in captured.out
+    assert "T1_US_FNAL" in captured.out
+    code = main(
+        [
+            "rm",
+            "--config",
+            str(fixtures_dir / "controller.yaml"),
+            "--cell",
+            "T2_CH_CERN,T1_US_FNAL",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "removed 1" in captured.out
+    assert 'TckestrelCampaign == "test-6cell"' in captured.out
+    assert recorder.query("test-6cell") == []
 
 
 def test_payload_cli_uses_cache(

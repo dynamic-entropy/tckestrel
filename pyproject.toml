@@ -17,7 +17,7 @@ dependencies = [
 tckestrel = "tckestrel.cli:main"
 
 [dependency-groups]
-dev = ["pytest", "rucio-clients>=41.2.0"]
+dev = ["pytest", "rucio-clients>=41.2.0", "htcondor>=24"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tckestrel"]
