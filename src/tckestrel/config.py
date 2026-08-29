@@ -33,6 +33,7 @@ class Config:
     job_duration_s: int = 7200
     recycle_after_s: int = 7200
     max_bytes: int = 0
+    site_map: Path | None = None
     source_path: Path | None = None
 
 
@@ -97,6 +98,8 @@ def load_config(path: str | Path) -> Config:
     filelists_dir = (
         resolve_path(str(filelists_raw), config_dir) if filelists_raw else None
     )
+    site_map_raw = raw.get("site_map")
+    site_map = resolve_path(str(site_map_raw), config_dir) if site_map_raw else None
 
     return Config(
         campaign_id=str(raw["campaign_id"]),
@@ -117,5 +120,6 @@ def load_config(path: str | Path) -> Config:
             "recycle_after_s", raw.get("recycle_after_s", 7200), minimum=1
         ),
         max_bytes=_require_int("max_bytes", raw.get("max_bytes", 0), minimum=0),
+        site_map=site_map,
         source_path=config_path,
     )

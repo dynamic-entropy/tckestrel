@@ -6,10 +6,21 @@ import argparse
 import sys
 from collections.abc import Sequence
 
+from pathlib import Path
+
+from tckestrel.cache import PrefixCache
 from tckestrel.campaign import CampaignError
 from tckestrel.config import ConfigError, load_config
 from tckestrel.matrix import MatrixError
 from tckestrel.plan import PlanError, PlannedCell, build_plan, has_missing
+from tckestrel.resolve import (
+    ResolveError,
+    ResolvedSlice,
+    cache_file,
+    default_backend,
+    parse_cell,
+    resolve_cell,
+)
 
 HEADERS = (
     "source",
@@ -59,6 +70,44 @@ def format_table(rows: list[PlannedCell]) -> str:
     return "\n".join(lines)
 
 
+def format_resolve(result: ResolvedSlice) -> str:
+    lines = [
+        f"source    {result.source}",
+        f"dest      {result.dest}",
+        f"rse       {result.rse}",
+        f"endpoint  {result.endpoint}",
+        f"cache     {'hit' if result.cache_hit else 'miss'}",
+        "",
+    ]
+    lines.extend(pfn.path for pfn in result.pfns)
+    return "\n".join(lines)
+
+
+def _cmd_resolve(
+    config_path: str,
+    cell: str,
+    limit: int,
+    site_map: str | None,
+) -> int:
+    try:
+        config = load_config(config_path)
+        source, dest = parse_cell(cell)
+        result = resolve_cell(
+            config,
+            source,
+            dest,
+            limit=limit,
+            backend=default_backend(),
+            cache=PrefixCache(cache_file(config)),
+            site_map=Path(site_map) if site_map else None,
+        )
+    except (ConfigError, MatrixError, CampaignError, PlanError, ResolveError) as exc:
+        print(f"tckestrel resolve: {exc}", file=sys.stderr)
+        return 1
+    print(format_resolve(result))
+    return 0
+
+
 def _cmd_plan(config_path: str) -> int:
     try:
         config = load_config(config_path)
@@ -81,6 +130,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     plan = sub.add_parser("plan", help="print cells, N, job rate, and file counts")
     plan.add_argument("--config", required=True, help="path to controller YAML")
+    resolve = sub.add_parser("resolve", help="stamp a cell's LFNs with root:// PFNs")
+    resolve.add_argument("--config", required=True, help="path to controller YAML")
+    resolve.add_argument("--cell", required=True, help="SOURCE,DEST")
+    resolve.add_argument("--limit", type=int, default=3, help="LFNs to resolve (default 3)")
+    resolve.add_argument("--site-map", dest="site_map", help="site_map.csv for old lists without rse")
     return parser
 
 
@@ -89,5 +143,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "plan":
         return _cmd_plan(args.config)
+    if args.command == "resolve":
+        return _cmd_resolve(args.config, args.cell, args.limit, args.site_map)
     parser.error(f"unknown command: {args.command}")
     return 2

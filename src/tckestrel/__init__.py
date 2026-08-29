@@ -1,3 +1,3 @@
-"""tckestrel: campaign ingest and fleet control for xrdhover."""
+"""tckestrel: campaign ingest, PFN resolve, and fleet control for xrdhover."""
 
 __version__ = "0.1.0"

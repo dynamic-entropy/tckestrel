@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from tckestrel.cli import main
+from tckestrel.rucio_backend import MappingBackend
 
 
 def test_plan_cli_prints_six_cells(fixtures_dir: Path, capsys: object) -> None:
@@ -66,3 +67,59 @@ def test_plan_cli_rejects_rse_dests(tmp_path: Path, fixtures_dir: Path, capsys: 
     captured = capsys.readouterr()
     assert code == 1
     assert "CMS sites" in captured.err
+
+
+def test_resolve_cli_uses_mock_backend(
+    fixtures_dir: Path, tmp_path: Path, capsys: object, monkeypatch: object
+) -> None:
+    backend = MappingBackend(
+        {
+            "/store/mc/PREMIX/cern-fnal.root": (
+                "root://eoscms.cern.ch:1094//eos/cms/store/mc/PREMIX/cern-fnal.root"
+            )
+        }
+    )
+    monkeypatch.setattr("tckestrel.cli.default_backend", lambda: backend)
+    monkeypatch.setattr(
+        "tckestrel.cli.cache_file", lambda config: tmp_path / "rse_prefix.json"
+    )
+    code = main(
+        [
+            "resolve",
+            "--config",
+            str(fixtures_dir / "controller.yaml"),
+            "--cell",
+            "T2_CH_CERN,T1_US_FNAL",
+            "--limit",
+            "1",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "root://eoscms.cern.ch:1094/" in captured.out
+    assert "/eos/cms/store/mc/PREMIX/cern-fnal.root" in captured.out
+    assert "cms-xrd-global" not in captured.out
+
+
+def test_resolve_cli_bad_rucio_config(
+    fixtures_dir: Path, tmp_path: Path, capsys: object, monkeypatch: object
+) -> None:
+    monkeypatch.setenv("RUCIO_CONFIG", str(tmp_path / "missing.cfg"))
+    monkeypatch.setattr(
+        "tckestrel.cli.cache_file", lambda config: tmp_path / "rse_prefix.json"
+    )
+    code = main(
+        [
+            "resolve",
+            "--config",
+            str(fixtures_dir / "controller.yaml"),
+            "--cell",
+            "T2_CH_CERN,T1_US_FNAL",
+            "--limit",
+            "1",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "Traceback" not in captured.err
+    assert "Rucio" in captured.err

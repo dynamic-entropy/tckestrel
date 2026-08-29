@@ -229,3 +229,6 @@ __marimo__/
 
 # Editor
 .cursor/
+
+# Per-RSE PFN prefix cache
+.tckestrel/

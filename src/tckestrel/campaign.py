@@ -25,6 +25,13 @@ class CampaignError(ValueError):
 
 
 @dataclass(frozen=True)
+class SidecarRow:
+    lfn: str
+    size_bytes: int | None
+    rse: str | None
+
+
+@dataclass(frozen=True)
 class Link:
     source: str
     dest: str
@@ -92,3 +99,36 @@ def load_links(filelists_dir: str | Path) -> dict[tuple[str, str], Link]:
 
 def sidecar_exists(link: Link) -> bool:
     return _sidecar_ok(link.sidecar)
+
+
+def load_sidecar_rows(path: str | Path) -> list[SidecarRow]:
+    sidecar = Path(path)
+    if not sidecar.is_file():
+        raise CampaignError(f"sidecar not found: {sidecar}")
+    with sidecar.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        names = [name.strip() for name in (reader.fieldnames or [])]
+        if "lfn" in names:
+            lfn_key = "lfn"
+        elif "file" in names:
+            lfn_key = "file"
+        else:
+            raise CampaignError(f"sidecar needs lfn or file: {sidecar}")
+        if "bytes" in names:
+            bytes_key = "bytes"
+        elif "size" in names:
+            bytes_key = "size"
+        else:
+            bytes_key = None
+        rows: list[SidecarRow] = []
+        for row in reader:
+            lfn = (row.get(lfn_key) or "").strip()
+            if not lfn:
+                continue
+            raw_size = (row.get(bytes_key) or "").strip() if bytes_key else ""
+            size = int(raw_size) if raw_size else None
+            rse = (row.get("rse") or "").strip() or None
+            rows.append(SidecarRow(lfn=lfn, size_bytes=size, rse=rse))
+    if not rows:
+        raise CampaignError(f"sidecar has no files: {sidecar}")
+    return rows

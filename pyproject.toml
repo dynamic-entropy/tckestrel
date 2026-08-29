@@ -9,16 +9,21 @@ description = "HTCondor fleet controller for xrdhover WAN-hold campaigns"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
-dependencies = ["pyyaml"]
+dependencies = [
+    "pyyaml",
+]
 
 [project.scripts]
 tckestrel = "tckestrel.cli:main"
 
 [dependency-groups]
-dev = ["pytest"]
+dev = ["pytest", "rucio-clients>=41.2.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tckestrel"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/tckestrel/rucio.cfg" = "tckestrel/rucio.cfg"
 
 [tool.uv]
 package = true
