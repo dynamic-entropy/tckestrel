@@ -20,6 +20,7 @@ from tckestrel.payload import (
     ensure_payload,
     payload_arch_for_dest,
 )
+from tckestrel.render import RenderError, RenderedJob, render_cell, validate_workload
 from tckestrel.resolve import (
     ResolveError,
     ResolvedSlice,
@@ -138,6 +139,66 @@ def _cmd_payload(config_path: str, arch: str | None, dest: str | None) -> int:
     return 0
 
 
+def format_render(result: RenderedJob) -> str:
+    return "\n".join(
+        [
+            f"source    {result.source}",
+            f"dest      {result.dest}",
+            f"rse       {result.rse}",
+            f"endpoint  {result.endpoint}",
+            f"run_id    {result.run_id}",
+            f"job_id    {result.job_id}",
+            f"job.json  {result.job_json}",
+            f"files.txt {result.files_txt}",
+        ]
+    )
+
+
+def _cmd_render(
+    config_path: str,
+    cell: str,
+    limit: int,
+    site_map: str | None,
+    out: str | None,
+    job_id: str | None,
+    validate: bool,
+) -> int:
+    try:
+        config = load_config(config_path)
+        source, dest = parse_cell(cell)
+        xrdhover = None
+        validator = None
+        if validate:
+            xrdhover = ensure_payload(config, payload_arch_for_dest(dest)).path
+            validator = validate_workload
+        result = render_cell(
+            config,
+            source,
+            dest,
+            limit=limit,
+            job_id=job_id,
+            out_dir=Path(out) if out else None,
+            backend=default_backend(),
+            cache=PrefixCache(cache_file(config)),
+            site_map=Path(site_map) if site_map else None,
+            validate=validator,
+            xrdhover=xrdhover,
+        )
+    except (
+        ConfigError,
+        MatrixError,
+        CampaignError,
+        PlanError,
+        ResolveError,
+        RenderError,
+        PayloadError,
+    ) as exc:
+        print(f"tckestrel render: {exc}", file=sys.stderr)
+        return 1
+    print(format_render(result))
+    return 0
+
+
 def _cmd_plan(config_path: str) -> int:
     try:
         config = load_config(config_path)
@@ -169,6 +230,18 @@ def build_parser() -> argparse.ArgumentParser:
     payload.add_argument("--config", required=True, help="path to controller YAML")
     payload.add_argument("--arch", help="release arch (default linux-amd64)")
     payload.add_argument("--dest", help="CMS dest site; selects arch when --arch is omitted")
+    render = sub.add_parser("render", help="write job.json and files.txt for a cell")
+    render.add_argument("--config", required=True, help="path to controller YAML")
+    render.add_argument("--cell", required=True, help="SOURCE,DEST")
+    render.add_argument("--limit", type=int, default=3, help="LFNs to stamp (default 3)")
+    render.add_argument("--site-map", dest="site_map", help="site_map.csv when the sidecar has no rse column")
+    render.add_argument("--out", help="directory for job.json and files.txt")
+    render.add_argument("--job-id", dest="job_id", help="sinks.job_id (default: new UUID)")
+    render.add_argument(
+        "--validate",
+        action="store_true",
+        help="run xrdhover validate on the written job.json",
+    )
     return parser
 
 
@@ -181,5 +254,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_resolve(args.config, args.cell, args.limit, args.site_map)
     if args.command == "payload":
         return _cmd_payload(args.config, args.arch, args.dest)
+    if args.command == "render":
+        return _cmd_render(
+            args.config,
+            args.cell,
+            args.limit,
+            args.site_map,
+            args.out,
+            args.job_id,
+            args.validate,
+        )
     parser.error(f"unknown command: {args.command}")
     return 2

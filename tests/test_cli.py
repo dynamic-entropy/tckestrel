@@ -101,6 +101,45 @@ def test_resolve_cli_uses_mock_backend(
     assert "cms-xrd-global" not in captured.out
 
 
+def test_render_cli_writes_job(
+    tmp_path: Path, fixtures_dir: Path, capsys: object, monkeypatch: object
+) -> None:
+    backend = MappingBackend(
+        {
+            "/store/mc/PREMIX/cern-fnal.root": (
+                "root://eoscms.cern.ch:1094//eos/cms/store/mc/PREMIX/cern-fnal.root"
+            )
+        }
+    )
+    monkeypatch.setattr("tckestrel.cli.default_backend", lambda: backend)
+    monkeypatch.setattr(
+        "tckestrel.cli.cache_file", lambda config: tmp_path / "rse_prefix.json"
+    )
+    out = tmp_path / "rendered"
+    code = main(
+        [
+            "render",
+            "--config",
+            str(fixtures_dir / "controller.yaml"),
+            "--cell",
+            "T2_CH_CERN,T1_US_FNAL",
+            "--limit",
+            "1",
+            "--out",
+            str(out),
+            "--job-id",
+            "cli.0",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert (out / "job.json").is_file()
+    assert (out / "files.txt").is_file()
+    assert "17Mbps" in (out / "job.json").read_text(encoding="utf-8")
+    assert "auto" not in (out / "job.json").read_text(encoding="utf-8")
+    assert str(out / "job.json") in captured.out
+
+
 def test_payload_cli_uses_cache(
     tmp_path: Path, fixtures_dir: Path, capsys: object
 ) -> None:

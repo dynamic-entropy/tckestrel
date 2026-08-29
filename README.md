@@ -32,6 +32,16 @@ uv run tckestrel resolve --config examples/controller.yaml --cell T2_CH_CERN,T1_
 
 Lists without an `rse` column use `--site-map` (or `site_map:` in the YAML, or `filelists_dir/site_map.csv`).
 
+## Render a job
+
+Write `job.json` + `files.txt` for one cell (resolve, then the xrdhover workload schema). Does not submit.
+
+```sh
+uv run tckestrel render --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FNAL --limit 3
+```
+
+`--out` sets the output directory. `--validate` runs `xrdhover validate` on the written JSON (needs a runnable payload binary). `--job-id` sets `sinks.job_id`; the default is a new UUID.
+
 ## xrdhover binary
 
 `tckestrel payload` fetches the [linux-amd64 release](https://github.com/dynamic-entropy/xrdhover/releases) into `$HOME/vendor/xrdhover/<version>/<arch>/xrdhover` if that file is missing. Condor transfers that file (`transfer_executable`). Worker nodes need `xrootd-client`. Submit will call the same ensure step and later choose `<arch>` from the dest site.

@@ -36,6 +36,7 @@ class Config:
     job_duration_s: int = 7200
     recycle_after_s: int = 7200
     max_bytes: int = 0
+    snapshot_interval_s: int = 15
     site_map: Path | None = None
     xrdhover: Path | None = None
     xrdhover_dir: Path | None = None
@@ -143,6 +144,9 @@ def load_config(path: str | Path) -> Config:
             "recycle_after_s", raw.get("recycle_after_s", 7200), minimum=1
         ),
         max_bytes=_require_int("max_bytes", raw.get("max_bytes", 0), minimum=0),
+        snapshot_interval_s=_require_int(
+            "snapshot_interval_s", raw.get("snapshot_interval_s", 15), minimum=1
+        ),
         site_map=site_map,
         xrdhover=xrdhover,
         xrdhover_dir=xrdhover_dir,
