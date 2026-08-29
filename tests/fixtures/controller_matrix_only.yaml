@@ -1,0 +1,7 @@
+campaign_id: test-6cell-matrix
+matrix: matrix.csv
+
+max_rate_per_job_gbps: 0.1
+default_inflight: 1
+chunk_bytes: 16000000000
+prom_url: http://127.0.0.1:9091

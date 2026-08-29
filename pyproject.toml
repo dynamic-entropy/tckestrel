@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tckestrel"
+version = "0.1.0"
+description = "HTCondor fleet controller for xrdhover WAN-hold campaigns"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = ["pyyaml"]
+
+[project.scripts]
+tckestrel = "tckestrel.cli:main"
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tckestrel"]
+
+[tool.uv]
+package = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
