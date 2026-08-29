@@ -227,7 +227,8 @@ def _cmd_submit(
     job_id: str | None,
     validate: bool,
     do_submit: bool,
-    any_site: bool,
+    pool: str | None,
+    schedd: str | None,
 ) -> int:
     try:
         config = load_config(config_path)
@@ -242,10 +243,9 @@ def _cmd_submit(
             backend=default_backend(),
             cache=PrefixCache(cache_file(config)),
             site_map=Path(site_map) if site_map else None,
-            condor=default_condor() if do_submit else None,
+            condor=default_condor(config, pool=pool, schedd=schedd) if do_submit else None,
             validate=validate,
             submit=do_submit,
-            any_site=any_site,
         )
     except (
         ConfigError,
@@ -286,13 +286,20 @@ def format_jobs(rows: list[CondorJob]) -> str:
     return "\n".join(lines)
 
 
-def _cmd_jobs(config_path: str, cell: str | None) -> int:
+def _cmd_jobs(
+    config_path: str,
+    cell: str | None,
+    pool: str | None,
+    schedd: str | None,
+) -> int:
     try:
         config = load_config(config_path)
         source = dest = None
         if cell:
             source, dest = parse_cell(cell)
-        rows = default_condor().query(config.campaign_id, source, dest)
+        rows = default_condor(config, pool=pool, schedd=schedd).query(
+            config.campaign_id, source, dest
+        )
     except (ConfigError, ResolveError, CondorError) as exc:
         print(f"tckestrel jobs: {exc}", file=sys.stderr)
         return 1
@@ -300,13 +307,20 @@ def _cmd_jobs(config_path: str, cell: str | None) -> int:
     return 0
 
 
-def _cmd_rm(config_path: str, cell: str | None) -> int:
+def _cmd_rm(
+    config_path: str,
+    cell: str | None,
+    pool: str | None,
+    schedd: str | None,
+) -> int:
     try:
         config = load_config(config_path)
         source = dest = None
         if cell:
             source, dest = parse_cell(cell)
-        removed = default_condor().remove(config.campaign_id, source, dest)
+        removed = default_condor(config, pool=pool, schedd=schedd).remove(
+            config.campaign_id, source, dest
+        )
     except (ConfigError, ResolveError, CondorError) as exc:
         print(f"tckestrel rm: {exc}", file=sys.stderr)
         return 1
@@ -371,18 +385,18 @@ def build_parser() -> argparse.ArgumentParser:
         dest="do_submit",
         help="contact the schedd (default is dry-run)",
     )
-    submit.add_argument(
-        "--any-site",
-        action="store_true",
-        dest="any_site",
-        help="omit +DESIRED_Sites (match any CMS site)",
-    )
+    submit.add_argument("--pool", help="HTCondor collector (condor_submit -pool)")
+    submit.add_argument("--schedd", help="remote schedd name (optional; adds -remote)")
     jobs = sub.add_parser("jobs", help="query campaign jobs on the schedd")
     jobs.add_argument("--config", required=True, help="path to controller YAML")
     jobs.add_argument("--cell", help="SOURCE,DEST")
+    jobs.add_argument("--pool", help="HTCondor collector")
+    jobs.add_argument("--schedd", help="remote schedd name")
     rm = sub.add_parser("rm", help="condor_rm by campaign ClassAd")
     rm.add_argument("--config", required=True, help="path to controller YAML")
     rm.add_argument("--cell", help="SOURCE,DEST")
+    rm.add_argument("--pool", help="HTCondor collector")
+    rm.add_argument("--schedd", help="remote schedd name")
     return parser
 
 
@@ -415,11 +429,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.job_id,
             args.validate,
             args.do_submit,
-            args.any_site,
+            args.pool,
+            args.schedd,
         )
     if args.command == "jobs":
-        return _cmd_jobs(args.config, args.cell)
+        return _cmd_jobs(args.config, args.cell, args.pool, args.schedd)
     if args.command == "rm":
-        return _cmd_rm(args.config, args.cell)
+        return _cmd_rm(args.config, args.cell, args.pool, args.schedd)
     parser.error(f"unknown command: {args.command}")
     return 2

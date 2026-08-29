@@ -15,6 +15,10 @@ def test_load_fixture_config(fixtures_dir: Path) -> None:
     assert config.default_inflight == 1
     assert config.job_duration_s == 7200
     assert config.required_os == "rhel9"
+    assert config.request_cpus == 1
+    assert config.request_memory_mb == 2048
+    assert config.request_disk_mb == 2048
+    assert config.condor_pool is None
 
 
 def test_xrdhover_expands_home(tmp_path: Path, fixtures_dir: Path, monkeypatch: object) -> None:

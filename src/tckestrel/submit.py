@@ -35,16 +35,20 @@ class SubmittedJob:
     result: SubmitResult | None
 
 
-def default_condor() -> CondorBackend:
-    return LiveCondor()
+def default_condor(
+    config: Config | None = None,
+    pool: str | None = None,
+    schedd: str | None = None,
+) -> CondorBackend:
+    chosen_pool = pool or (config.condor_pool if config else None)
+    chosen_schedd = schedd or (config.condor_schedd if config else None)
+    return LiveCondor(pool=chosen_pool, schedd=chosen_schedd)
 
 
 def make_spec(
     config: Config,
     rendered: RenderedJob,
     executable: Path,
-    *,
-    any_site: bool = False,
 ) -> SubmitSpec:
     return SubmitSpec(
         executable=executable.resolve(),
@@ -56,7 +60,9 @@ def make_spec(
         job_id=rendered.job_id,
         proxy=proxy_path(),
         required_os=config.required_os,
-        desired_sites="" if any_site else None,
+        request_cpus=config.request_cpus,
+        request_memory_mb=config.request_memory_mb,
+        request_disk_mb=config.request_disk_mb,
     )
 
 
@@ -75,7 +81,6 @@ def submit_cell(
     payload: Payload | None = None,
     validate: bool = False,
     submit: bool = False,
-    any_site: bool = False,
 ) -> SubmittedJob:
     try:
         binary = payload or ensure_payload(config, payload_arch_for_dest(dest))
@@ -92,7 +97,7 @@ def submit_cell(
             validate=validate_workload if validate else None,
             xrdhover=binary.path if validate else None,
         )
-        spec = make_spec(config, rendered, binary.path, any_site=any_site)
+        spec = make_spec(config, rendered, binary.path)
         submit_file = rendered.job_json.parent / "job.sub"
         submit_file.write_text(submit_text(spec), encoding="utf-8")
         result = None

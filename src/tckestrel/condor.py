@@ -36,7 +36,9 @@ class SubmitSpec:
     job_id: str
     proxy: Path | None = None
     required_os: str = "rhel9"
-    desired_sites: str | None = None
+    request_cpus: int = 1
+    request_memory_mb: int = 2048
+    request_disk_mb: int = 2048
 
 
 @dataclass(frozen=True)
@@ -110,16 +112,17 @@ def submit_items(spec: SubmitSpec) -> dict[str, str]:
         "error": "job.err",
         "log": "job.log",
         "use_x509userproxy": "true",
+        "request_cpus": str(spec.request_cpus),
+        "request_memory": f"{spec.request_memory_mb}MB",
+        "request_disk": f"{spec.request_disk_mb}MB",
         "+REQUIRED_OS": ad_string(spec.required_os),
         "+TckestrelCampaign": ad_string(spec.campaign_id),
         "+TckestrelSource": ad_string(spec.source),
         "+TckestrelDest": ad_string(spec.dest),
         "+TckestrelRunId": ad_string(spec.run_id),
         "+TckestrelJobId": ad_string(spec.job_id),
+        "+DESIRED_Sites": ad_string(spec.dest),
     }
-    site = spec.dest if spec.desired_sites is None else spec.desired_sites
-    if site:
-        items["+DESIRED_Sites"] = ad_string(site)
     if spec.proxy is not None:
         items["x509userproxy"] = str(spec.proxy)
     return items
@@ -152,6 +155,31 @@ def _import_htcondor():
     return htcondor
 
 
+def condor_argv(
+    tool: str,
+    *args: str,
+    pool: str | None = None,
+    schedd: str | None = None,
+) -> list[str]:
+    cmd = [tool]
+    if pool:
+        cmd.extend(["-pool", pool])
+    if schedd:
+        if tool == "condor_submit":
+            cmd.extend(["-remote", schedd])
+        else:
+            cmd.extend(["-name", schedd])
+    cmd.extend(args)
+    return cmd
+
+
+def _run_condor(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(cmd, check=False, capture_output=True, text=True)
+    except OSError as exc:
+        raise CondorError(f"{cmd[0]} failed: {exc}") from exc
+
+
 def _job_from_ad(ad: object) -> CondorJob:
     status = int(ad.get("JobStatus", 0))
     return CondorJob(
@@ -167,28 +195,28 @@ def _job_from_ad(ad: object) -> CondorJob:
 
 
 class LiveCondor:
+    def __init__(self, pool: str | None = None, schedd: str | None = None) -> None:
+        self.pool = pool or None
+        self.schedd = schedd or None
+
     def submit(self, spec: SubmitSpec) -> SubmitResult:
         # Site condor_submit: the PyPI htcondor2 Submit() API injects a
         # CondorVersion >= 25.12 requirement that CMS glideins do not satisfy.
+        # condor_pool is -pool only; -remote/-name need an explicit schedd.
         sub = spec.job_dir / "job.sub"
         if not sub.is_file():
             sub.write_text(submit_text(spec), encoding="utf-8")
-        try:
-            proc = subprocess.run(
-                ["condor_submit", str(sub)],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-        except OSError as exc:
-            raise CondorError(f"condor_submit failed: {exc}") from exc
+        proc = _run_condor(
+            condor_argv("condor_submit", str(sub), pool=self.pool, schedd=self.schedd)
+        )
         if proc.returncode != 0:
             err = (proc.stderr or proc.stdout or "").strip()
             raise CondorError(f"condor_submit failed ({proc.returncode}): {err}")
         match = _CLUSTER_RE.search(proc.stdout) or _CLUSTER_RE.search(proc.stderr)
         if match is None:
             raise CondorError("condor_submit returned no cluster id")
-        return SubmitResult(cluster=int(match.group(1)), proc=0)
+        cluster = int(match.group(1))
+        return SubmitResult(cluster=cluster, proc=0)
 
     def query(
         self,
@@ -196,6 +224,8 @@ class LiveCondor:
         source: str | None = None,
         dest: str | None = None,
     ) -> list[CondorJob]:
+        if self.pool or self.schedd:
+            return self._query_cli(campaign_id, source, dest)
         htcondor = _import_htcondor()
         constraint = campaign_constraint(campaign_id, source, dest)
         projection = [
@@ -215,14 +245,77 @@ class LiveCondor:
             raise CondorError(str(exc)) from exc
         return [_job_from_ad(ad) for ad in ads]
 
+    def _query_cli(
+        self,
+        campaign_id: str,
+        source: str | None,
+        dest: str | None,
+    ) -> list[CondorJob]:
+        constraint = campaign_constraint(campaign_id, source, dest)
+        proc = _run_condor(
+            condor_argv(
+                "condor_q",
+                "-const",
+                constraint,
+                "-af",
+                "ClusterId",
+                "ProcId",
+                "JobStatus",
+                "DESIRED_Sites",
+                "TckestrelSource",
+                "TckestrelCampaign",
+                "TckestrelDest",
+                "TckestrelRunId",
+                "TckestrelJobId",
+                pool=self.pool,
+                schedd=self.schedd,
+            )
+        )
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "").strip()
+            raise CondorError(f"condor_q failed ({proc.returncode}): {err}")
+        rows: list[CondorJob] = []
+        for line in proc.stdout.splitlines():
+            fields = line.split(None, 8)
+            if len(fields) < 9:
+                continue
+            status = int(fields[2]) if fields[2].isdigit() else 0
+            rows.append(
+                CondorJob(
+                    cluster=int(fields[0]),
+                    proc=int(fields[1]) if fields[1].isdigit() else 0,
+                    status=JOB_STATUS.get(status, fields[2]),
+                    dest=fields[3],
+                    source=fields[4],
+                    campaign_id=fields[5],
+                    run_id=fields[7],
+                    job_id=fields[8],
+                )
+            )
+        return rows
+
     def remove(
         self,
         campaign_id: str,
         source: str | None = None,
         dest: str | None = None,
     ) -> int:
-        htcondor = _import_htcondor()
         constraint = campaign_constraint(campaign_id, source, dest)
+        if self.pool or self.schedd:
+            proc = _run_condor(
+                condor_argv(
+                    "condor_rm",
+                    "-constraint",
+                    constraint,
+                    pool=self.pool,
+                    schedd=self.schedd,
+                )
+            )
+            if proc.returncode != 0:
+                err = (proc.stderr or proc.stdout or "").strip()
+                raise CondorError(f"condor_rm failed ({proc.returncode}): {err}")
+            return sum(1 for line in proc.stdout.splitlines() if "marked for removal" in line)
+        htcondor = _import_htcondor()
         try:
             result = htcondor.Schedd().act(htcondor.JobAction.Remove, constraint)
         except Exception as exc:

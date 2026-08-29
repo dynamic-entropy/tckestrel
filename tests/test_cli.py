@@ -211,7 +211,9 @@ def test_submit_cli_queues_with_mock(
     monkeypatch.setattr(
         "tckestrel.cli.cache_file", lambda config: tmp_path / "rse_prefix.json"
     )
-    monkeypatch.setattr("tckestrel.cli.default_condor", lambda: recorder)
+    monkeypatch.setattr(
+        "tckestrel.cli.default_condor", lambda *args, **kwargs: recorder
+    )
     monkeypatch.setattr(
         "tckestrel.submit.ensure_payload",
         lambda config, arch: Payload(
@@ -256,7 +258,9 @@ def test_jobs_and_rm_cli(
             job_id="listed.0",
         )
     )
-    monkeypatch.setattr("tckestrel.cli.default_condor", lambda: recorder)
+    monkeypatch.setattr(
+        "tckestrel.cli.default_condor", lambda *args, **kwargs: recorder
+    )
     code = main(["jobs", "--config", str(fixtures_dir / "controller.yaml")])
     captured = capsys.readouterr()
     assert code == 0

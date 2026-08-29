@@ -2,6 +2,8 @@
 
 Fleet controller for [xrdhover](https://github.com/dynamic-entropy/xrdhover) WAN-hold jobs on HTCondor.
 
+A matrix cell `(source, dest)` means: land the job at dest (`+DESIRED_Sites`) and read pinned `root://` PFNs at source. That is the WAN link being held.
+
 Managed with [uv](https://docs.astral.sh/uv/).
 
 ## Install
@@ -85,11 +87,16 @@ uv run tckestrel rm --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FN
 | `transfer_executable` | `true` |
 | `arguments` | `run job.json` |
 | `transfer_input_files` | `job.json, files.txt` |
-| `+DESIRED_Sites` | dest CMS site (omit with `--any-site`) |
+| `request_cpus` | `request_cpus` in the YAML (default `1`) |
+| `request_memory` | `request_memory_mb` (default `2048`) |
+| `request_disk` | `request_disk_mb` (default `2048`) |
+| `+DESIRED_Sites` | dest CMS site (where the job runs) |
 | `+REQUIRED_OS` | `required_os` in the YAML (default `rhel9`) |
 | `x509userproxy` | `X509_USER_PROXY` when that file exists |
 
 `jobs` and `rm` select on `TckestrelCampaign`, optionally `TckestrelSource` and `TckestrelDest`.
+
+`condor_pool` / `--pool` is `condor_submit -pool …` (and the same flag on `jobs` / `rm`). That names a collector, not a schedd. `condor_schedd` / `--schedd` is optional and adds `-remote` / `-name`.
 
 ## Tests
 

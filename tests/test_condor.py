@@ -5,6 +5,7 @@ from tckestrel.condor import (
     RecordingCondor,
     SubmitSpec,
     campaign_constraint,
+    condor_argv,
     submit_items,
     submit_text,
 )
@@ -53,6 +54,9 @@ def test_submit_text_contract(tmp_path: Path) -> None:
     assert items["+TckestrelRunId"] == '"test-6cell/T2_CH_CERN__T1_US_FNAL"'
     assert items["+TckestrelJobId"] == '"job.0"'
     assert items["use_x509userproxy"] == "true"
+    assert items["request_cpus"] == "1"
+    assert items["request_memory"] == "2048MB"
+    assert items["request_disk"] == "2048MB"
     assert "x509userproxy" not in items
     assert text.endswith("queue\n")
     assert "transfer_executable" in text and "= true" in text
@@ -75,21 +79,26 @@ def test_submit_text_includes_proxy(tmp_path: Path) -> None:
     assert submit_items(spec)["x509userproxy"] == str(proxy)
 
 
-def test_submit_omits_desired_sites(tmp_path: Path) -> None:
-    spec = SubmitSpec(
-        executable=tmp_path / "xrdhover",
-        job_dir=tmp_path / "job",
-        dest="T1_US_FNAL",
-        campaign_id="c",
-        source="S",
-        run_id="c/S__T1_US_FNAL",
-        job_id="1",
-        desired_sites="",
-    )
-    items = submit_items(spec)
-    assert "+DESIRED_Sites" not in items
-    assert "+REQUIRED_OS" in items
-    assert "DESIRED_Sites" not in submit_text(spec)
+def test_condor_argv_remote_pool() -> None:
+    assert condor_argv(
+        "condor_submit", "job.sub", pool="vocms4100.cern.ch"
+    ) == ["condor_submit", "-pool", "vocms4100.cern.ch", "job.sub"]
+    assert condor_argv(
+        "condor_q", "-af", "JobStatus", pool="vocms4100.cern.ch"
+    ) == ["condor_q", "-pool", "vocms4100.cern.ch", "-af", "JobStatus"]
+    assert condor_argv(
+        "condor_submit",
+        "job.sub",
+        pool="vocms4100.cern.ch",
+        schedd="schedd.cern.ch",
+    ) == [
+        "condor_submit",
+        "-pool",
+        "vocms4100.cern.ch",
+        "-remote",
+        "schedd.cern.ch",
+        "job.sub",
+    ]
 
 
 def test_campaign_constraint() -> None:
@@ -131,6 +140,7 @@ def test_submit_cell_dry_run_writes_sub(
     assert str(result.spec.executable) in text
     assert (tmp_path / "job" / "job.json").is_file()
     assert (tmp_path / "job" / "files.txt").is_file()
+    assert "request_memory" in text
 
 
 def test_submit_cell_queues_via_backend(

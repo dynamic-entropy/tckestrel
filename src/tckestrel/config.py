@@ -42,6 +42,11 @@ class Config:
     xrdhover_dir: Path | None = None
     xrdhover_version: str = DEFAULT_XRDHOVER_VERSION
     required_os: str = "rhel9"
+    request_cpus: int = 1
+    request_memory_mb: int = 2048
+    request_disk_mb: int = 2048
+    condor_pool: str | None = None
+    condor_schedd: str | None = None
     source_path: Path | None = None
 
 
@@ -70,6 +75,13 @@ def _require_positive_float(name: str, value: object) -> float:
     if number <= 0:
         raise ConfigError(f"{name} must be > 0")
     return number
+
+
+def _optional_host(value: object) -> str | None:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _require_os(value: object) -> str:
@@ -160,5 +172,14 @@ def load_config(path: str | Path) -> Config:
         xrdhover_dir=xrdhover_dir,
         xrdhover_version=xrdhover_version,
         required_os=_require_os(raw.get("required_os", "rhel9")),
+        request_cpus=_require_int("request_cpus", raw.get("request_cpus", 1), minimum=1),
+        request_memory_mb=_require_int(
+            "request_memory_mb", raw.get("request_memory_mb", 2048), minimum=1
+        ),
+        request_disk_mb=_require_int(
+            "request_disk_mb", raw.get("request_disk_mb", 2048), minimum=1
+        ),
+        condor_pool=_optional_host(raw.get("condor_pool")),
+        condor_schedd=_optional_host(raw.get("condor_schedd")),
         source_path=config_path,
     )
