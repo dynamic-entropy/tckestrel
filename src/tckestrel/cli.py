@@ -13,6 +13,13 @@ from tckestrel.campaign import CampaignError
 from tckestrel.config import ConfigError, load_config
 from tckestrel.matrix import MatrixError
 from tckestrel.plan import PlanError, PlannedCell, build_plan, has_missing
+from tckestrel.payload import (
+    DEFAULT_ARCH,
+    Payload,
+    PayloadError,
+    ensure_payload,
+    payload_arch_for_dest,
+)
 from tckestrel.resolve import (
     ResolveError,
     ResolvedSlice,
@@ -108,6 +115,29 @@ def _cmd_resolve(
     return 0
 
 
+def format_payload(result: Payload) -> str:
+    return "\n".join(
+        [
+            f"arch      {result.arch}",
+            f"version   {result.version}",
+            f"path      {result.path}",
+            f"fetched   {'true' if result.fetched else 'false'}",
+        ]
+    )
+
+
+def _cmd_payload(config_path: str, arch: str | None, dest: str | None) -> int:
+    try:
+        config = load_config(config_path)
+        chosen = arch or (payload_arch_for_dest(dest) if dest else DEFAULT_ARCH)
+        result = ensure_payload(config, chosen)
+    except (ConfigError, PayloadError) as exc:
+        print(f"tckestrel payload: {exc}", file=sys.stderr)
+        return 1
+    print(format_payload(result))
+    return 0
+
+
 def _cmd_plan(config_path: str) -> int:
     try:
         config = load_config(config_path)
@@ -134,7 +164,11 @@ def build_parser() -> argparse.ArgumentParser:
     resolve.add_argument("--config", required=True, help="path to controller YAML")
     resolve.add_argument("--cell", required=True, help="SOURCE,DEST")
     resolve.add_argument("--limit", type=int, default=3, help="LFNs to resolve (default 3)")
-    resolve.add_argument("--site-map", dest="site_map", help="site_map.csv for old lists without rse")
+    resolve.add_argument("--site-map", dest="site_map", help="site_map.csv when the sidecar has no rse column")
+    payload = sub.add_parser("payload", help="ensure the xrdhover release binary is on disk")
+    payload.add_argument("--config", required=True, help="path to controller YAML")
+    payload.add_argument("--arch", help="release arch (default linux-amd64)")
+    payload.add_argument("--dest", help="CMS dest site; selects arch when --arch is omitted")
     return parser
 
 
@@ -145,5 +179,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_plan(args.config)
     if args.command == "resolve":
         return _cmd_resolve(args.config, args.cell, args.limit, args.site_map)
+    if args.command == "payload":
+        return _cmd_payload(args.config, args.arch, args.dest)
     parser.error(f"unknown command: {args.command}")
     return 2

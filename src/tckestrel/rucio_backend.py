@@ -1,4 +1,4 @@
-"""Rucio LFN→PFN backends. Tests inject a mock; live import is optional."""
+"""Rucio LFN→PFN backends."""
 
 from __future__ import annotations
 

@@ -101,6 +101,39 @@ def test_resolve_cli_uses_mock_backend(
     assert "cms-xrd-global" not in captured.out
 
 
+def test_payload_cli_uses_cache(
+    tmp_path: Path, fixtures_dir: Path, capsys: object
+) -> None:
+    dest_dir = tmp_path / "vendor"
+    binary = dest_dir / "0.2.0" / "linux-amd64" / "xrdhover"
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"#!/bin/sh\n")
+    binary.chmod(0o755)
+    yaml_path = tmp_path / "controller.yaml"
+    yaml_path.write_text(
+        "\n".join(
+            [
+                "campaign_id: payload",
+                f"matrix: {fixtures_dir / 'matrix.csv'}",
+                "max_rate_per_job_gbps: 0.1",
+                "default_inflight: 1",
+                "chunk_bytes: 1",
+                "prom_url: http://127.0.0.1:9091",
+                f"xrdhover_dir: {dest_dir}",
+                "xrdhover_version: 0.2.0",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    code = main(["payload", "--config", str(yaml_path)])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "linux-amd64" in captured.out
+    assert str(binary) in captured.out
+    assert "fetched   false" in captured.out
+
+
 def test_resolve_cli_bad_rucio_config(
     fixtures_dir: Path, tmp_path: Path, capsys: object, monkeypatch: object
 ) -> None:

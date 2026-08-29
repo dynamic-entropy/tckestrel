@@ -217,18 +217,21 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Local campaign dumps (not the package)
+# Campaign data
 /input/
 /output/
 /table_dump_format_and_sample
 /2026-08-28/
 
-# Internal design notes (not the package)
+# Docs
 /docs/
 /examples/
 
 # Editor
 .cursor/
 
-# Per-RSE PFN prefix cache
+# PFN cache
 .tckestrel/
+
+# Payload binary
+/vendor/

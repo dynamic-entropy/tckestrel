@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+
+DEFAULT_XRDHOVER_VERSION = "latest"
 
 REQUIRED = (
     "campaign_id",
@@ -34,12 +37,18 @@ class Config:
     recycle_after_s: int = 7200
     max_bytes: int = 0
     site_map: Path | None = None
+    xrdhover: Path | None = None
+    xrdhover_dir: Path | None = None
+    xrdhover_version: str = DEFAULT_XRDHOVER_VERSION
     source_path: Path | None = None
 
 
 def resolve_path(raw: str, config_dir: Path) -> Path:
-    """Resolve a YAML path relative to the config file, then cwd."""
-    path = Path(raw)
+    """Resolve a YAML path relative to the config file, then cwd.
+
+    Expands ``$HOME``, ``${HOME}``, and ``~``.
+    """
+    path = Path(os.path.expanduser(os.path.expandvars(raw)))
     if path.is_absolute():
         return path
     config_rel = (config_dir / path).resolve()
@@ -100,6 +109,20 @@ def load_config(path: str | Path) -> Config:
     )
     site_map_raw = raw.get("site_map")
     site_map = resolve_path(str(site_map_raw), config_dir) if site_map_raw else None
+    xrdhover_raw = raw.get("xrdhover")
+    xrdhover = resolve_path(str(xrdhover_raw), config_dir) if xrdhover_raw else None
+    xrdhover_dir_raw = raw.get("xrdhover_dir")
+    xrdhover_dir = (
+        resolve_path(str(xrdhover_dir_raw), config_dir) if xrdhover_dir_raw else None
+    )
+    version_raw = raw.get("xrdhover_version", DEFAULT_XRDHOVER_VERSION)
+    xrdhover_version = str(version_raw).strip()
+    if xrdhover_version.lower() == "latest":
+        xrdhover_version = "latest"
+    else:
+        xrdhover_version = xrdhover_version.lstrip("v")
+    if not xrdhover_version:
+        raise ConfigError("xrdhover_version must be non-empty")
 
     return Config(
         campaign_id=str(raw["campaign_id"]),
@@ -121,5 +144,8 @@ def load_config(path: str | Path) -> Config:
         ),
         max_bytes=_require_int("max_bytes", raw.get("max_bytes", 0), minimum=0),
         site_map=site_map,
+        xrdhover=xrdhover,
+        xrdhover_dir=xrdhover_dir,
+        xrdhover_version=xrdhover_version,
         source_path=config_path,
     )
