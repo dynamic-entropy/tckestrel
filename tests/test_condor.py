@@ -242,6 +242,27 @@ def test_submit_plan_queues_n_per_cell(
     }
 
 
+def test_submit_plan_fetches_payload_once(
+    fixtures_dir: Path, tmp_path: Path, monkeypatch: object
+) -> None:
+    monkeypatch.delenv("X509_USER_PROXY", raising=False)
+    calls = {"n": 0}
+
+    def _once(config: object, arch: str | None = None) -> Payload:
+        calls["n"] += 1
+        return _payload(tmp_path)
+
+    monkeypatch.setattr("tckestrel.submit.ensure_payload", _once)
+    submit_plan(
+        load_config(fixtures_dir / "controller.yaml"),
+        backend=_campaign_backend(),
+        cache=PrefixCache(tmp_path / "cache.json"),
+        condor=RecordingCondor(),
+        submit=True,
+    )
+    assert calls["n"] == 1
+
+
 def test_recording_query_and_remove() -> None:
     condor = RecordingCondor()
     condor.submit(

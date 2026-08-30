@@ -166,10 +166,13 @@ def submit_plan(
         rows = [row for row in rows if row.source == source and row.dest == dest]
         if not rows:
             raise SubmitError(f"no matrix cell {source},{dest}")
+    if not rows:
+        raise SubmitError("plan has no cells to submit")
     missing = [f"{row.source},{row.dest}" for row in rows if row.missing]
     if missing:
         raise SubmitError(f"no links.csv row or sidecar for {', '.join(missing)}")
 
+    binary = payload or ensure_payload(config, payload_arch_for_dest(rows[0].dest))
     jobs: list[SubmittedJob] = []
     for row in rows:
         for index in range(row.n_jobs):
@@ -188,11 +191,9 @@ def submit_plan(
                     cache=store,
                     site_map=site_map,
                     condor=condor,
-                    payload=payload,
+                    payload=binary,
                     validate=validate,
                     submit=submit,
                 )
             )
-    if not jobs:
-        raise SubmitError("plan has no cells to submit")
     return jobs
