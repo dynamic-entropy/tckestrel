@@ -19,6 +19,7 @@ def test_load_fixture_config(fixtures_dir: Path) -> None:
     assert config.request_memory_mb == 2048
     assert config.request_disk_mb == 2048
     assert config.condor_pool is None
+    assert config.cmssw == "CMSSW_20_1_0_pre2"
 
 
 def test_xrdhover_expands_home(tmp_path: Path, fixtures_dir: Path, monkeypatch: object) -> None:

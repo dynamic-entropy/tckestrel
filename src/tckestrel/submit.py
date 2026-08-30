@@ -8,6 +8,7 @@ from pathlib import Path
 from tckestrel.cache import PrefixCache
 from tckestrel.condor import (
     LOG_DIR,
+    WRAPPER_NAME,
     CondorBackend,
     CondorError,
     LiveCondor,
@@ -46,10 +47,22 @@ def default_condor(
     return LiveCondor(pool=chosen_pool, schedd=chosen_schedd)
 
 
+def packaged_wrapper() -> Path:
+    return Path(__file__).resolve().parent / WRAPPER_NAME
+
+
+def install_wrapper(job_dir: Path) -> Path:
+    dest = job_dir / WRAPPER_NAME
+    dest.write_bytes(packaged_wrapper().read_bytes())
+    dest.chmod(0o755)
+    return dest
+
+
 def make_spec(
     config: Config,
     rendered: RenderedJob,
     executable: Path,
+    payload: Path,
 ) -> SubmitSpec:
     return SubmitSpec(
         executable=executable.resolve(),
@@ -69,6 +82,8 @@ def make_spec(
             if config.filelists_dir is not None
             else None
         ),
+        payload=payload.resolve(),
+        cmssw=config.cmssw,
     )
 
 
@@ -103,7 +118,8 @@ def submit_cell(
             validate=validate_workload if validate else None,
             xrdhover=binary.path if validate else None,
         )
-        spec = make_spec(config, rendered, binary.path)
+        wrapper = install_wrapper(rendered.job_json.parent)
+        spec = make_spec(config, rendered, wrapper, binary.path)
         (spec.job_dir / LOG_DIR).mkdir(parents=True, exist_ok=True)
         if spec.event_log is not None:
             spec.event_log.parent.mkdir(parents=True, exist_ok=True)

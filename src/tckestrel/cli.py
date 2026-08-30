@@ -208,6 +208,7 @@ def format_submit(result: SubmittedJob) -> str:
         f"run_id    {result.rendered.run_id}",
         f"job_id    {result.rendered.job_id}",
         f"executable {result.spec.executable}",
+        f"cmssw     {result.spec.cmssw}",
         f"job.sub   {result.submit_file}",
         f"job.json  {result.rendered.job_json}",
         f"logs      {result.spec.job_dir / LOG_DIR}",

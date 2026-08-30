@@ -24,6 +24,7 @@ packages = ["src/tckestrel"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/tckestrel/rucio.cfg" = "tckestrel/rucio.cfg"
+"src/tckestrel/run_xrdhover.sh" = "tckestrel/run_xrdhover.sh"
 
 [tool.uv]
 package = true

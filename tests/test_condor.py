@@ -9,7 +9,7 @@ from tckestrel.condor import (
     submit_items,
     submit_text,
 )
-from tckestrel.config import load_config
+from tckestrel.config import DEFAULT_CMSSW, load_config
 from tckestrel.payload import Payload
 from tckestrel.rucio_backend import MappingBackend
 from tckestrel.submit import submit_cell
@@ -29,13 +29,15 @@ def _spec(tmp_path: Path) -> SubmitSpec:
     job_dir = tmp_path / "job"
     job_dir.mkdir(exist_ok=True)
     return SubmitSpec(
-        executable=tmp_path / "xrdhover",
+        executable=job_dir / "run_xrdhover.sh",
         job_dir=job_dir,
         dest="T1_US_FNAL",
         campaign_id="test-6cell",
         source="T2_CH_CERN",
         run_id="test-6cell/T2_CH_CERN__T1_US_FNAL",
         job_id="job.0",
+        payload=tmp_path / "xrdhover",
+        cmssw=DEFAULT_CMSSW,
     )
 
 
@@ -44,8 +46,9 @@ def test_submit_text_contract(tmp_path: Path) -> None:
     items = submit_items(_spec(tmp_path))
     assert items["universe"] == "vanilla"
     assert items["transfer_executable"] == "true"
-    assert items["arguments"] == "run job.json"
-    assert items["transfer_input_files"] == "job.json, files.txt"
+    assert items["arguments"] == f"-C {DEFAULT_CMSSW} -- run job.json"
+    assert items["transfer_input_files"] == f"job.json, files.txt, {tmp_path / 'xrdhover'}"
+    assert items["+DesiredOS"] == "REQUIRED_OS"
     assert items["should_transfer_files"] == "YES"
     assert items["should_transfer_output"] == "YES"
     assert items["when_to_transfer_output"] == "ON_EXIT_OR_EVICT"
@@ -67,7 +70,8 @@ def test_submit_text_contract(tmp_path: Path) -> None:
     assert items["request_disk"] == "2048MB"
     assert text.endswith("queue\n")
     assert "transfer_executable" in text and "= true" in text
-    assert "arguments" in text and "run job.json" in text
+    assert "arguments" in text and f"-C {DEFAULT_CMSSW}" in text
+    assert "run job.json" in text
 
 
 def test_submit_text_includes_proxy(tmp_path: Path) -> None:
@@ -148,6 +152,10 @@ def test_submit_cell_dry_run_writes_sub(
     assert (tmp_path / "job" / "job.json").is_file()
     assert (tmp_path / "job" / "files.txt").is_file()
     assert (tmp_path / "job" / "logs").is_dir()
+    assert (tmp_path / "job" / "run_xrdhover.sh").is_file()
+    assert "run_xrdhover.sh" in text
+    assert f"-C {DEFAULT_CMSSW}" in text
+    assert "xrdhover" in text
     assert "logs/$(Cluster).$(Process).out" in text
     assert str((fixtures_dir / "campaign" / ".tckestrel" / "condor.log").resolve()) in text
     assert "when_to_transfer_output" in text

@@ -9,9 +9,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from tckestrel.config import DEFAULT_CMSSW
+
 _CLUSTER_RE = re.compile(r"submitted to cluster (\d+)", re.I)
 
 LOG_DIR = "logs"
+WRAPPER_NAME = "run_xrdhover.sh"
+PAYLOAD_NAME = "xrdhover"
 
 JOB_STATUS = {
     1: "Idle",
@@ -42,6 +46,8 @@ class SubmitSpec:
     request_memory_mb: int = 2048
     request_disk_mb: int = 2048
     event_log: Path | None = None
+    payload: Path | None = None
+    cmssw: str = DEFAULT_CMSSW
 
 
 @dataclass(frozen=True)
@@ -107,8 +113,12 @@ def submit_items(spec: SubmitSpec) -> dict[str, str]:
         "universe": "vanilla",
         "executable": str(spec.executable),
         "transfer_executable": "true",
-        "arguments": "run job.json",
-        "transfer_input_files": "job.json, files.txt",
+        "arguments": f"-C {spec.cmssw} -- run job.json",
+        "transfer_input_files": (
+            f"job.json, files.txt, {spec.payload}"
+            if spec.payload is not None
+            else "job.json, files.txt"
+        ),
         "should_transfer_files": "YES",
         "should_transfer_output": "YES",
         "when_to_transfer_output": "ON_EXIT_OR_EVICT",
@@ -125,6 +135,7 @@ def submit_items(spec: SubmitSpec) -> dict[str, str]:
         "request_memory": f"{spec.request_memory_mb}MB",
         "request_disk": f"{spec.request_disk_mb}MB",
         "+REQUIRED_OS": ad_string(spec.required_os),
+        "+DesiredOS": "REQUIRED_OS",
         "+TckestrelCampaign": ad_string(spec.campaign_id),
         "+TckestrelSource": ad_string(spec.source),
         "+TckestrelDest": ad_string(spec.dest),

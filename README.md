@@ -4,6 +4,8 @@ Fleet controller for [xrdhover](https://github.com/dynamic-entropy/xrdhover) WAN
 
 A matrix cell `(source, dest)` means: land the job at dest (`+DESIRED_Sites`) and read pinned `root://` PFNs at source. That is the WAN link being held.
 
+The job executable is `run_xrdhover.sh`. It sources CMS `cmsset_default.sh`, cmsenv of `cmssw` (default `CMSSW_20_1_0_pre2`), then execs the transferred `xrdhover`. That release ships XRootD 6.0.2 (`libXrdCl.so.6`) on el9, which matches `required_os: rhel9`.
+
 Managed with [uv](https://docs.astral.sh/uv/).
 
 ## Install
@@ -58,7 +60,7 @@ uv run tckestrel render --config examples/controller.yaml --cell T2_CH_CERN,T1_U
 
 ## payload
 
-Fetch the [linux-amd64 release](https://github.com/dynamic-entropy/xrdhover/releases) into `$HOME/vendor/xrdhover/<version>/<arch>/xrdhover` if that file is missing. Condor transfers the file (`transfer_executable`). Worker nodes require `xrootd-client`.
+Fetch the [linux-amd64 release](https://github.com/dynamic-entropy/xrdhover/releases) into `$HOME/vendor/xrdhover/<version>/<arch>/xrdhover` if that file is missing. Condor transfers the file as input; `run_xrdhover.sh` is the executable. The WN glidein does not provide `libXrdCl.so.6`. The wrapper cmsenv’s `cmssw` (default `CMSSW_20_1_0_pre2`, XRootD 6.0.2 on el9) so that library is on `LD_LIBRARY_PATH`. 15.x–20.0 CMSSW still ship XRootD 5 and will not load the binary.
 
 ```sh
 uv run tckestrel payload --config examples/controller.yaml
@@ -69,6 +71,8 @@ uv run tckestrel payload --config examples/controller.yaml
 | `xrdhover_version` | `latest` |
 | `xrdhover_dir` | `$HOME/vendor/xrdhover` |
 | `xrdhover` | (unset; pin a file) |
+| `cmssw` | `CMSSW_20_1_0_pre2` (XRootD 6.0.2; must stay 6.x) |
+| `required_os` | `rhel9` (must match `cmssw` arch) |
 
 ## submit
 
@@ -83,10 +87,10 @@ uv run tckestrel rm --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FN
 
 | Submit attribute | Value |
 |---|---|
-| `executable` | path from `tckestrel payload` |
+| `executable` | `run_xrdhover.sh` (CMSSW cmsenv, then `xrdhover`) |
 | `transfer_executable` | `true` |
-| `arguments` | `run job.json` |
-| `transfer_input_files` | `job.json, files.txt` |
+| `arguments` | `-C CMSSW_20_1_0_pre2 -- run job.json` (`cmssw` in the YAML) |
+| `transfer_input_files` | `job.json, files.txt`, plus the xrdhover binary |
 | `should_transfer_output` | `YES` (`results/` and stdout/stderr back to the job dir) |
 | `when_to_transfer_output` | `ON_EXIT_OR_EVICT` |
 | `output` / `error` | `logs/$(Cluster).$(Process).{out,err}` under the job dir |
@@ -98,6 +102,7 @@ uv run tckestrel rm --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FN
 | `request_disk` | `request_disk_mb` (default `2048`) |
 | `+DESIRED_Sites` | dest CMS site (where the job runs) |
 | `+REQUIRED_OS` | `required_os` in the YAML (default `rhel9`) |
+| `+DesiredOS` | `REQUIRED_OS` (CMS Connect, same as test.jdl) |
 | `x509userproxy` | `X509_USER_PROXY` when that file exists |
 
 `jobs` and `rm` select on `TckestrelCampaign`, optionally `TckestrelSource` and `TckestrelDest`.

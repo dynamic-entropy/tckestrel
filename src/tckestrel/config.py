@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 
 DEFAULT_XRDHOVER_VERSION = "latest"
+DEFAULT_CMSSW = "CMSSW_20_1_0_pre2"
 
 REQUIRED = (
     "campaign_id",
@@ -47,6 +48,7 @@ class Config:
     request_disk_mb: int = 2048
     condor_pool: str | None = None
     condor_schedd: str | None = None
+    cmssw: str = DEFAULT_CMSSW
     source_path: Path | None = None
 
 
@@ -88,6 +90,13 @@ def _require_os(value: object) -> str:
     text = str(value).strip()
     if not text:
         raise ConfigError("required_os must be non-empty")
+    return text
+
+
+def _require_cmssw(value: object) -> str:
+    text = str(value).strip()
+    if not text.startswith("CMSSW_"):
+        raise ConfigError("cmssw must be a CMSSW_ release name")
     return text
 
 
@@ -181,5 +190,6 @@ def load_config(path: str | Path) -> Config:
         ),
         condor_pool=_optional_host(raw.get("condor_pool")),
         condor_schedd=_optional_host(raw.get("condor_schedd")),
+        cmssw=_require_cmssw(raw.get("cmssw", DEFAULT_CMSSW)),
         source_path=config_path,
     )
