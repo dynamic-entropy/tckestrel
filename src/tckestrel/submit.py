@@ -1,4 +1,4 @@
-"""Render a cell and submit one Condor job (or write a dry-run .sub)."""
+"""Render cells and submit Condor jobs (or write dry-run .sub files)."""
 
 from __future__ import annotations
 
@@ -19,7 +19,8 @@ from tckestrel.condor import (
 )
 from tckestrel.config import Config
 from tckestrel.payload import Payload, PayloadError, ensure_payload, payload_arch_for_dest
-from tckestrel.render import RenderError, RenderedJob, render_cell, validate_workload
+from tckestrel.plan import build_plan
+from tckestrel.render import RenderError, RenderedJob, link_id, render_cell, validate_workload
 from tckestrel.resolve import ResolveError, cache_file
 from tckestrel.rucio_backend import RucioBackend
 
@@ -139,3 +140,59 @@ def submit_cell(
         payload=binary,
         result=result,
     )
+
+
+def submit_plan(
+    config: Config,
+    *,
+    source: str | None = None,
+    dest: str | None = None,
+    job_id: str | None = None,
+    out_dir: Path | None = None,
+    backend: RucioBackend | None = None,
+    cache: PrefixCache | None = None,
+    site_map: Path | None = None,
+    condor: CondorBackend | None = None,
+    payload: Payload | None = None,
+    validate: bool = False,
+    submit: bool = False,
+) -> list[SubmittedJob]:
+    """Submit ``N`` jobs per cell. Each holds ``job_rate_gbps = R / N``."""
+    store = cache if cache is not None else PrefixCache(cache_file(config))
+    rows = build_plan(config)
+    if source is not None or dest is not None:
+        if source is None or dest is None:
+            raise SubmitError("cell must be SOURCE,DEST")
+        rows = [row for row in rows if row.source == source and row.dest == dest]
+        if not rows:
+            raise SubmitError(f"no matrix cell {source},{dest}")
+    missing = [f"{row.source},{row.dest}" for row in rows if row.missing]
+    if missing:
+        raise SubmitError(f"no links.csv row or sidecar for {', '.join(missing)}")
+
+    jobs: list[SubmittedJob] = []
+    for row in rows:
+        for index in range(row.n_jobs):
+            if row.n_jobs == 1:
+                issued = job_id
+            else:
+                issued = f"{link_id(row.source, row.dest)}__{index}"
+            jobs.append(
+                submit_cell(
+                    config,
+                    row.source,
+                    row.dest,
+                    job_id=issued,
+                    out_dir=out_dir if len(rows) == 1 else None,
+                    backend=backend,
+                    cache=store,
+                    site_map=site_map,
+                    condor=condor,
+                    payload=payload,
+                    validate=validate,
+                    submit=submit,
+                )
+            )
+    if not jobs:
+        raise SubmitError("plan has no cells to submit")
+    return jobs

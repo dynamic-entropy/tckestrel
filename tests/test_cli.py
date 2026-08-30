@@ -235,6 +235,70 @@ def test_submit_cli_queues_with_mock(
     assert recorder.submitted[0].job_id == "cli.q.0"
 
 
+def test_submit_cli_queues_plan(
+    tmp_path: Path, fixtures_dir: Path, capsys: object, monkeypatch: object
+) -> None:
+    backend = MappingBackend(
+        {
+            "/store/mc/PREMIX/cern-fnal.root": (
+                "root://eoscms.cern.ch:1094//eos/cms/store/mc/PREMIX/cern-fnal.root"
+            ),
+            "/store/mc/PREMIX/cern-kit.root": (
+                "root://eoscms.cern.ch:1094//eos/cms/store/mc/PREMIX/cern-kit.root"
+            ),
+            "/store/mc/PREMIX/cern-ucsd.root": (
+                "root://eoscms.cern.ch:1094//eos/cms/store/mc/PREMIX/cern-ucsd.root"
+            ),
+            "/store/mc/PREMIX/fnal-cern.root": (
+                "root://cmsxrootd.fnal.gov:1094//pnfs/fnal.gov/usr/cms/WAX/11"
+                "/store/mc/PREMIX/fnal-cern.root"
+            ),
+            "/store/mc/PREMIX/fnal-kit-a.root": (
+                "root://cmsxrootd.fnal.gov:1094//pnfs/fnal.gov/usr/cms/WAX/11"
+                "/store/mc/PREMIX/fnal-kit-a.root"
+            ),
+            "/store/mc/PREMIX/fnal-kit-b.root": (
+                "root://cmsxrootd.fnal.gov:1094//pnfs/fnal.gov/usr/cms/WAX/11"
+                "/store/mc/PREMIX/fnal-kit-b.root"
+            ),
+            "/store/mc/PREMIX/fnal-ucsd.root": (
+                "root://cmsxrootd.fnal.gov:1094//pnfs/fnal.gov/usr/cms/WAX/11"
+                "/store/mc/PREMIX/fnal-ucsd.root"
+            ),
+        }
+    )
+    binary = tmp_path / "xrdhover"
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    binary.chmod(0o755)
+    recorder = RecordingCondor()
+    monkeypatch.delenv("X509_USER_PROXY", raising=False)
+    monkeypatch.setattr("tckestrel.cli.default_backend", lambda: backend)
+    monkeypatch.setattr(
+        "tckestrel.cli.cache_file", lambda config: tmp_path / "rse_prefix.json"
+    )
+    monkeypatch.setattr(
+        "tckestrel.cli.default_condor", lambda *args, **kwargs: recorder
+    )
+    monkeypatch.setattr(
+        "tckestrel.submit.ensure_payload",
+        lambda config, arch: Payload(
+            path=binary, version="0.2.0", arch=arch, fetched=False
+        ),
+    )
+    code = main(
+        [
+            "submit",
+            "--config",
+            str(fixtures_dir / "controller.yaml"),
+            "--submit",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "queued 6" in captured.out
+    assert len(recorder.submitted) == 6
+
+
 def test_jobs_and_rm_cli(
     tmp_path: Path, fixtures_dir: Path, capsys: object, monkeypatch: object
 ) -> None:

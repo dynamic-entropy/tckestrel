@@ -30,7 +30,7 @@ from tckestrel.resolve import (
     parse_cell,
     resolve_cell,
 )
-from tckestrel.submit import SubmitError, SubmittedJob, default_condor, submit_cell
+from tckestrel.submit import SubmitError, SubmittedJob, default_condor, submit_plan
 
 HEADERS = (
     "source",
@@ -220,7 +220,7 @@ def format_submit(result: SubmittedJob) -> str:
 
 def _cmd_submit(
     config_path: str,
-    cell: str,
+    cell: str | None,
     site_map: str | None,
     out: str | None,
     job_id: str | None,
@@ -231,11 +231,13 @@ def _cmd_submit(
 ) -> int:
     try:
         config = load_config(config_path)
-        source, dest = parse_cell(cell)
-        result = submit_cell(
+        source = dest = None
+        if cell:
+            source, dest = parse_cell(cell)
+        jobs = submit_plan(
             config,
-            source,
-            dest,
+            source=source,
+            dest=dest,
             job_id=job_id,
             out_dir=Path(out) if out else None,
             backend=default_backend(),
@@ -258,7 +260,9 @@ def _cmd_submit(
     ) as exc:
         print(f"tckestrel submit: {exc}", file=sys.stderr)
         return 1
-    print(format_submit(result))
+    print("\n".join(format_submit(job) for job in jobs))
+    queued = sum(1 for job in jobs if job.result is not None)
+    print(f"queued {queued}  written {len(jobs)}")
     return 0
 
 
@@ -367,9 +371,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="run xrdhover validate on the written job.json",
     )
-    submit = sub.add_parser("submit", help="write a Condor submit file; --submit to queue it")
+    submit = sub.add_parser("submit", help="queue N jobs per cell from the plan")
     submit.add_argument("--config", required=True, help="path to controller YAML")
-    submit.add_argument("--cell", required=True, help="SOURCE,DEST")
+    submit.add_argument("--cell", help="SOURCE,DEST (default: all planned cells)")
     submit.add_argument("--site-map", dest="site_map", help="site_map.csv when the sidecar has no rse column")
     submit.add_argument("--out", help="directory for job.json, files.txt, and job.sub")
     submit.add_argument("--job-id", dest="job_id", help="sinks.job_id (default: SOURCE__DEST)")

@@ -12,10 +12,28 @@ from tckestrel.condor import (
 from tckestrel.config import DEFAULT_CMSSW, load_config
 from tckestrel.payload import Payload
 from tckestrel.rucio_backend import MappingBackend
-from tckestrel.submit import submit_cell
+from tckestrel.submit import submit_cell, submit_plan
 
 CERN_LFN = "/store/mc/PREMIX/cern-fnal.root"
 CERN_PFN = "root://eoscms.cern.ch:1094//eos/cms/store/mc/PREMIX/cern-fnal.root"
+FNAL_PFN = (
+    "root://cmsxrootd.fnal.gov:1094//pnfs/fnal.gov/usr/cms/WAX/11"
+    "/store/mc/PREMIX/fnal-cern.root"
+)
+
+
+def _campaign_backend() -> MappingBackend:
+    return MappingBackend(
+        {
+            CERN_LFN: CERN_PFN,
+            "/store/mc/PREMIX/cern-kit.root": CERN_PFN.replace("cern-fnal", "cern-kit"),
+            "/store/mc/PREMIX/cern-ucsd.root": CERN_PFN.replace("cern-fnal", "cern-ucsd"),
+            "/store/mc/PREMIX/fnal-cern.root": FNAL_PFN,
+            "/store/mc/PREMIX/fnal-kit-a.root": FNAL_PFN.replace("fnal-cern", "fnal-kit-a"),
+            "/store/mc/PREMIX/fnal-kit-b.root": FNAL_PFN.replace("fnal-cern", "fnal-kit-b"),
+            "/store/mc/PREMIX/fnal-ucsd.root": FNAL_PFN.replace("fnal-cern", "fnal-ucsd"),
+        }
+    )
 
 
 def _payload(tmp_path: Path) -> Payload:
@@ -190,6 +208,38 @@ def test_submit_cell_queues_via_backend(
     rows = recorder.query("test-6cell", dest="T1_US_FNAL")
     assert len(rows) == 1
     assert rows[0].status == "Idle"
+
+
+def test_submit_plan_queues_n_per_cell(
+    fixtures_dir: Path, tmp_path: Path, monkeypatch: object
+) -> None:
+    monkeypatch.delenv("X509_USER_PROXY", raising=False)
+    config = load_config(fixtures_dir / "controller.yaml")
+    recorder = RecordingCondor()
+    jobs = submit_plan(
+        config,
+        backend=_campaign_backend(),
+        cache=PrefixCache(tmp_path / "cache.json"),
+        condor=recorder,
+        payload=_payload(tmp_path),
+        submit=True,
+    )
+    assert len(jobs) == 6
+    dests = {(spec.source, spec.dest) for spec in recorder.submitted}
+    assert dests == {
+        ("T2_CH_CERN", "T1_US_FNAL"),
+        ("T2_CH_CERN", "T1_DE_KIT"),
+        ("T2_CH_CERN", "T2_US_UCSD"),
+        ("T1_US_FNAL", "T2_CH_CERN"),
+        ("T1_US_FNAL", "T1_DE_KIT"),
+        ("T1_US_FNAL", "T2_US_UCSD"),
+    }
+    assert {spec.job_id for spec in recorder.submitted} == {
+        f"{src}__{dst}" for src, dst in dests
+    }
+    assert {spec.run_id for spec in recorder.submitted} == {
+        f"{src}__{dst}" for src, dst in dests
+    }
 
 
 def test_recording_query_and_remove() -> None:

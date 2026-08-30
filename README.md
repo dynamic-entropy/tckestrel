@@ -78,13 +78,13 @@ uv run tckestrel payload --config examples/controller.yaml
 
 ## submit
 
-Write `job.sub` next to `job.json` and `files.txt`. `--submit` queues the job on the schedd.
+Write `job.sub` next to `job.json` and `files.txt`. Without `--cell`, walk the plan and queue **N jobs per cell** (`N` from the YAML / matrix). `--cell SOURCE,DEST` limits that to one link. `--submit` contacts the schedd.
 
 ```sh
-uv run tckestrel submit --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FNAL
+uv run tckestrel submit --config examples/controller.yaml --submit
 uv run tckestrel submit --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FNAL --submit
 uv run tckestrel jobs --config examples/controller.yaml
-uv run tckestrel rm --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FNAL
+uv run tckestrel rm --config examples/controller.yaml
 ```
 
 | Submit attribute | Value |
