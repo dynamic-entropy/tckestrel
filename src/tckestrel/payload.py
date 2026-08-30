@@ -16,7 +16,11 @@ from urllib.error import URLError
 from tckestrel.config import DEFAULT_XRDHOVER_VERSION, Config
 
 DEFAULT_VERSION = DEFAULT_XRDHOVER_VERSION
+# Artifact name is arch-only. The GitHub linux-amd64 tarball is an AlmaLinux 9
+# build (glibc 2.34). That matches required_os=rhel9. Do not rename this string
+# and do not fetch an el10 binary under this name.
 DEFAULT_ARCH = "linux-amd64"
+EXPECTED_BUILD_OS = {DEFAULT_ARCH: "el9-amd64"}
 DEFAULT_DIR = Path("vendor") / "xrdhover"
 LATEST_API = "https://api.github.com/repos/dynamic-entropy/xrdhover/releases/latest"
 RELEASE_URL = (
@@ -45,7 +49,7 @@ def default_payload_dir() -> Path:
 
 
 def payload_arch_for_dest(dest: str) -> str:
-    """WN architecture for ``DESIRED_Sites``. v1 is linux-amd64 for every dest."""
+    """WN architecture for ``DESIRED_Sites``. v1 is linux-amd64 (el9) for every dest."""
     _ = dest
     return DEFAULT_ARCH
 
@@ -100,7 +104,34 @@ def download_url(url: str, dest: Path) -> None:
         shutil.copyfileobj(response, handle)
 
 
-def _install_from_tarball(tarball: Path, dest: Path) -> None:
+def _build_os_member_name(binary_name: str) -> str:
+    path = Path(binary_name)
+    if path.parent.name == "bin":
+        return str(path.parent.parent / "BUILD_OS")
+    return str(path.parent / "BUILD_OS")
+
+
+def _require_build_os(archive: tarfile.TarFile, binary_member: tarfile.TarInfo, arch: str) -> None:
+    expected = EXPECTED_BUILD_OS.get(arch)
+    if expected is None:
+        return
+    marker_name = _build_os_member_name(binary_member.name)
+    try:
+        marker = archive.getmember(marker_name)
+    except KeyError:
+        return
+    extracted = archive.extractfile(marker)
+    if extracted is None:
+        raise PayloadError(f"tarball BUILD_OS is not a file: {marker_name}")
+    text = extracted.read().decode().strip()
+    if text != expected:
+        raise PayloadError(
+            f"{arch} must be an el9 build (BUILD_OS={text!r}, expected {expected!r}); "
+            "do not ship an el10 binary to rhel9 glideins"
+        )
+
+
+def _install_from_tarball(tarball: Path, dest: Path, arch: str) -> None:
     with tarfile.open(tarball, "r:gz") as archive:
         member = next(
             (
@@ -116,6 +147,7 @@ def _install_from_tarball(tarball: Path, dest: Path) -> None:
         )
         if member is None:
             raise PayloadError(f"tarball has no xrdhover binary: {tarball}")
+        _require_build_os(archive, member, arch)
         extracted = archive.extractfile(member)
         if extracted is None:
             raise PayloadError(f"tarball member is not a file: {member.name}")
@@ -157,7 +189,7 @@ def ensure_payload(
         with tempfile.TemporaryDirectory(prefix="tckestrel-xrdhover-") as tmp:
             tarball = Path(tmp) / "xrdhover.tar.gz"
             download(url, tarball)
-            _install_from_tarball(tarball, dest)
+            _install_from_tarball(tarball, dest, chosen)
     except PayloadError:
         raise
     except URLError as exc:

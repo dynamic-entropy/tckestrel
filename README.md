@@ -4,7 +4,7 @@ Fleet controller for [xrdhover](https://github.com/dynamic-entropy/xrdhover) WAN
 
 A matrix cell `(source, dest)` means: land the job at dest (`+DESIRED_Sites`) and read pinned `root://` PFNs at source. That is the WAN link being held.
 
-The job executable is `run_xrdhover.sh`. It sources CMS `cmsset_default.sh`, cmsenv of `cmssw` (default `CMSSW_20_1_0_pre2`), then execs the transferred `xrdhover`. That release ships XRootD 6.0.2 (`libXrdCl.so.6`) on el9, which matches `required_os: rhel9`.
+The job executable is `run_xrdhover.sh`. It sources CMS `cmsset_default.sh`, cmsenv of `cmssw` (default `CMSSW_20_1_0_pre2`), then execs the transferred `xrdhover`. That release ships XRootD 6.0.2 (`libXrdCl.so.6`) on el9, which matches `required_os: rhel9`. The fetched `linux-amd64` binary is itself an AlmaLinux 9 build — do not cache an el10 tarball under that name.
 
 Managed with [uv](https://docs.astral.sh/uv/).
 
@@ -60,7 +60,7 @@ uv run tckestrel render --config examples/controller.yaml --cell T2_CH_CERN,T1_U
 
 ## payload
 
-Fetch the [linux-amd64 release](https://github.com/dynamic-entropy/xrdhover/releases) into `$HOME/vendor/xrdhover/<version>/<arch>/xrdhover` if that file is missing. Condor transfers the file as input; `run_xrdhover.sh` is the executable. The WN glidein does not provide `libXrdCl.so.6`. The wrapper cmsenv’s `cmssw` (default `CMSSW_20_1_0_pre2`, XRootD 6.0.2 on el9) so that library is on `LD_LIBRARY_PATH`. 15.x–20.0 CMSSW still ship XRootD 5 and will not load the binary.
+Fetch the [linux-amd64 release](https://github.com/dynamic-entropy/xrdhover/releases) into `$HOME/vendor/xrdhover/<version>/<arch>/xrdhover` if that file is missing. That artifact name means **el9 amd64** (glibc 2.34, OpenSSL 3). An el10-built tarball will fail on `rhel9` glideins (`GLIBC_` / `GLIBCXX_`). Condor transfers the file as input; `run_xrdhover.sh` is the executable. The WN glidein does not provide `libXrdCl.so.6`. The wrapper cmsenv’s `cmssw` (default `CMSSW_20_1_0_pre2`, XRootD 6.0.2 on el9) so that library is on `LD_LIBRARY_PATH`. 15.x–20.0 CMSSW still ship XRootD 5 and will not load the binary.
 
 ```sh
 uv run tckestrel payload --config examples/controller.yaml

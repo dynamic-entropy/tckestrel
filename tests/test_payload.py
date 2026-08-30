@@ -32,15 +32,20 @@ def _write_config(tmp_path: Path, fixtures_dir: Path, extra: dict | None = None)
     return path
 
 
-def _make_tarball(tmp_path: Path, version: str, arch: str) -> Path:
-    root = tmp_path / "pkg" / f"xrdhover-{version}-{arch}" / "bin"
+def _make_tarball(
+    tmp_path: Path, version: str, arch: str, build_os: str | None = None
+) -> Path:
+    pkg = tmp_path / "pkg" / f"xrdhover-{version}-{arch}"
+    root = pkg / "bin"
     root.mkdir(parents=True)
     binary = root / "xrdhover"
     binary.write_bytes(b"#!/bin/sh\necho xrdhover\n")
     binary.chmod(0o755)
+    if build_os is not None:
+        (pkg / "BUILD_OS").write_text(f"{build_os}\n", encoding="utf-8")
     tarball = tmp_path / "xrdhover.tar.gz"
     with tarfile.open(tarball, "w:gz") as archive:
-        archive.add(root.parent, arcname=f"xrdhover-{version}-{arch}")
+        archive.add(pkg, arcname=f"xrdhover-{version}-{arch}")
     return tarball
 
 
@@ -202,3 +207,38 @@ def test_ensure_latest_uses_resolved_tag(tmp_path: Path, fixtures_dir: Path) -> 
     assert result.fetched is True
     assert result.version == "0.3.1"
     assert result.path == cached_binary(config, DEFAULT_ARCH, "0.3.1")
+
+
+def test_el9_build_os_is_accepted(tmp_path: Path, fixtures_dir: Path) -> None:
+    tarball = _make_tarball(tmp_path, "0.2.0", "linux-amd64", build_os="el9-amd64")
+    config = load_config(
+        _write_config(
+            tmp_path,
+            fixtures_dir,
+            {"xrdhover_dir": str(tmp_path / "vendor"), "xrdhover_version": "0.2.0"},
+        )
+    )
+
+    def copy_tarball(url: str, dest: Path) -> None:
+        dest.write_bytes(tarball.read_bytes())
+
+    result = ensure_payload(config, download=copy_tarball)
+    assert result.fetched is True
+    assert result.path.is_file()
+
+
+def test_el10_build_os_is_rejected(tmp_path: Path, fixtures_dir: Path) -> None:
+    tarball = _make_tarball(tmp_path, "0.2.0", "linux-amd64", build_os="el10-amd64")
+    config = load_config(
+        _write_config(
+            tmp_path,
+            fixtures_dir,
+            {"xrdhover_dir": str(tmp_path / "vendor"), "xrdhover_version": "0.2.0"},
+        )
+    )
+
+    def copy_tarball(url: str, dest: Path) -> None:
+        dest.write_bytes(tarball.read_bytes())
+
+    with pytest.raises(PayloadError, match="el9 build"):
+        ensure_payload(config, download=copy_tarball)
