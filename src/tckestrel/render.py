@@ -79,6 +79,11 @@ def link_id(source: str, dest: str) -> str:
 
 
 def run_id_for(source: str, dest: str) -> str:
+    """Prom src_dst / Pushgateway grouping. Shared by all N jobs on this cell.
+
+    Uniqueness is sinks.job_id → Pushgateway ``replica`` (not a Grafana
+    dimension). See xrdhover include/xrdhover/push_group.hh.
+    """
     return link_id(source, dest)
 
 

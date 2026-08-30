@@ -179,6 +179,8 @@ def submit_plan(
             if row.n_jobs == 1:
                 issued = job_id
             else:
+                # Distinct sinks.job_id → Pushgateway replica. Same run_id/src_dst
+                # for the cell. Do not reuse one job_id across N or they clobber.
                 issued = f"{link_id(row.source, row.dest)}__{index}"
             jobs.append(
                 submit_cell(
