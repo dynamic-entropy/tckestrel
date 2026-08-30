@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from tckestrel.config import DEFAULT_CMSSW
+from tckestrel.config import DEFAULT_CMSSW, DEFAULT_KEEP_CLAIM_IDLE_S
 
 _CLUSTER_RE = re.compile(r"submitted to cluster (\d+)", re.I)
 
@@ -48,6 +48,7 @@ class SubmitSpec:
     event_log: Path | None = None
     payload: Path | None = None
     cmssw: str = DEFAULT_CMSSW
+    keep_claim_idle_s: int = DEFAULT_KEEP_CLAIM_IDLE_S
 
 
 @dataclass(frozen=True)
@@ -134,6 +135,7 @@ def submit_items(spec: SubmitSpec) -> dict[str, str]:
         "request_cpus": str(spec.request_cpus),
         "request_memory": f"{spec.request_memory_mb}MB",
         "request_disk": f"{spec.request_disk_mb}MB",
+        "keep_claim_idle": str(spec.keep_claim_idle_s),
         "+REQUIRED_OS": ad_string(spec.required_os),
         "+DesiredOS": "REQUIRED_OS",
         "+TckestrelCampaign": ad_string(spec.campaign_id),

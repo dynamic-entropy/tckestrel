@@ -10,6 +10,7 @@ import yaml
 
 DEFAULT_XRDHOVER_VERSION = "latest"
 DEFAULT_CMSSW = "CMSSW_20_1_0_pre2"
+DEFAULT_KEEP_CLAIM_IDLE_S = 600
 
 REQUIRED = (
     "campaign_id",
@@ -49,6 +50,7 @@ class Config:
     condor_pool: str | None = None
     condor_schedd: str | None = None
     cmssw: str = DEFAULT_CMSSW
+    keep_claim_idle_s: int = DEFAULT_KEEP_CLAIM_IDLE_S
     source_path: Path | None = None
 
 
@@ -191,5 +193,10 @@ def load_config(path: str | Path) -> Config:
         condor_pool=_optional_host(raw.get("condor_pool")),
         condor_schedd=_optional_host(raw.get("condor_schedd")),
         cmssw=_require_cmssw(raw.get("cmssw", DEFAULT_CMSSW)),
+        keep_claim_idle_s=_require_int(
+            "keep_claim_idle",
+            raw.get("keep_claim_idle", DEFAULT_KEEP_CLAIM_IDLE_S),
+            minimum=0,
+        ),
         source_path=config_path,
     )

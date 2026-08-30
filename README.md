@@ -100,6 +100,7 @@ uv run tckestrel rm --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FN
 | `request_cpus` | `request_cpus` in the YAML (default `1`) |
 | `request_memory` | `request_memory_mb` (default `2048`) |
 | `request_disk` | `request_disk_mb` (default `2048`) |
+| `keep_claim_idle` | `keep_claim_idle` in the YAML (default `600` seconds) |
 | `+DESIRED_Sites` | dest CMS site (where the job runs) |
 | `+REQUIRED_OS` | `required_os` in the YAML (default `rhel9`) |
 | `+DesiredOS` | `REQUIRED_OS` (CMS Connect, same as test.jdl) |

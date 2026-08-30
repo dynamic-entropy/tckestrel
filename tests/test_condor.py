@@ -68,6 +68,7 @@ def test_submit_text_contract(tmp_path: Path) -> None:
     assert items["request_cpus"] == "1"
     assert items["request_memory"] == "2048MB"
     assert items["request_disk"] == "2048MB"
+    assert items["keep_claim_idle"] == "600"
     assert text.endswith("queue\n")
     assert "transfer_executable" in text and "= true" in text
     assert "arguments" in text and f"-C {DEFAULT_CMSSW}" in text
@@ -160,6 +161,8 @@ def test_submit_cell_dry_run_writes_sub(
     assert str((fixtures_dir / "campaign" / ".tckestrel" / "condor.log").resolve()) in text
     assert "when_to_transfer_output" in text
     assert "request_memory" in text
+    assert "keep_claim_idle" in text
+    assert "600" in text
 
 
 def test_submit_cell_queues_via_backend(

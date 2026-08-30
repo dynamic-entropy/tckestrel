@@ -84,6 +84,7 @@ def make_spec(
         ),
         payload=payload.resolve(),
         cmssw=config.cmssw,
+        keep_claim_idle_s=config.keep_claim_idle_s,
     )
 
 
