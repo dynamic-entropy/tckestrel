@@ -6,7 +6,8 @@ import yaml
 
 from tckestrel.cache import PrefixCache
 from tckestrel.config import load_config
-from tckestrel.resolve import ResolveError, resolve_cell
+from tckestrel.campaign import SidecarRow
+from tckestrel.resolve import ResolveError, choose_sidecar_rows, resolve_cell
 from tckestrel.rucio_backend import (
     MappingBackend,
     ensure_rucio_config,
@@ -27,6 +28,19 @@ def _cern_map(rse: str, lfns: list[str]) -> dict[str, str]:
     return {lfn: f"root://eoscms.cern.ch:1094//eos/cms{lfn}" for lfn in lfns}
 
 
+def test_choose_sidecar_rows_fills_job_wall() -> None:
+    rows = [
+        SidecarRow("/a", 4_000_000_000, "R"),
+        SidecarRow("/b", 4_000_000_000, "R"),
+        SidecarRow("/c", 4_000_000_000, "R"),
+    ]
+    assert [r.lfn for r in choose_sidecar_rows(rows, 8_000_000_000)] == ["/a", "/b"]
+    unsized = [SidecarRow("/a", None, None), SidecarRow("/b", None, None)]
+    assert [r.lfn for r in choose_sidecar_rows(unsized, 16_000_000_000)] == ["/a"]
+    with pytest.raises(ResolveError, match="no LFNs"):
+        choose_sidecar_rows([], 1)
+
+
 def test_eos_double_slash_normalized(fixtures_dir: Path, tmp_path: Path) -> None:
     config = load_config(fixtures_dir / "controller.yaml")
     backend = MappingBackend(
@@ -36,7 +50,6 @@ def test_eos_double_slash_normalized(fixtures_dir: Path, tmp_path: Path) -> None
         config,
         "T2_CH_CERN",
         "T1_US_FNAL",
-        limit=1,
         backend=backend,
         cache=PrefixCache(tmp_path / "cache.json"),
     )
@@ -51,7 +64,6 @@ def test_resolve_fixture_cell(fixtures_dir: Path, tmp_path: Path) -> None:
         config,
         "T2_CH_CERN",
         "T1_US_FNAL",
-        limit=1,
         backend=backend,
         cache=PrefixCache(tmp_path / "cache.json"),
     )
@@ -72,7 +84,6 @@ def test_aaa_host_fails(fixtures_dir: Path, tmp_path: Path) -> None:
             config,
             "T2_CH_CERN",
             "T1_US_FNAL",
-            limit=1,
             backend=backend,
             cache=PrefixCache(tmp_path / "cache.json"),
         )
@@ -87,7 +98,6 @@ def test_cache_hit_skips_api(fixtures_dir: Path, tmp_path: Path) -> None:
         config,
         "T2_CH_CERN",
         "T1_US_FNAL",
-        limit=1,
         backend=backend,
         cache=PrefixCache(cache_path),
     )
@@ -98,7 +108,6 @@ def test_cache_hit_skips_api(fixtures_dir: Path, tmp_path: Path) -> None:
         config,
         "T2_CH_CERN",
         "T1_US_FNAL",
-        limit=1,
         backend=backend,
         cache=PrefixCache(cache_path),
     )
@@ -119,7 +128,6 @@ def test_cold_slice_calls_api_once(fixtures_dir: Path, tmp_path: Path) -> None:
         config,
         "T1_US_FNAL",
         "T1_DE_KIT",
-        limit=2,
         backend=backend,
         cache=PrefixCache(tmp_path / "cache.json"),
     )
@@ -180,7 +188,6 @@ def test_old_premix_uses_site_map(tmp_path: Path) -> None:
         config,
         "T2_CH_CERN",
         "T1_DE_KIT",
-        limit=1,
         backend=MappingBackend(factory),
         cache=PrefixCache(tmp_path / "cache.json"),
     )

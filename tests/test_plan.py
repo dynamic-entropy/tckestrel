@@ -4,7 +4,8 @@ import pytest
 import yaml
 
 from tckestrel.config import load_config
-from tckestrel.plan import build_plan, has_missing
+from tckestrel.matrix import Cell
+from tckestrel.plan import build_plan, has_missing, scale_cells
 
 
 def test_join_fixture_campaign(fixtures_dir: Path) -> None:
@@ -60,3 +61,35 @@ def test_missing_links_row(tmp_path: Path, fixtures_dir: Path) -> None:
     assert len(rows) == 6
     assert has_missing(rows)
     assert all(r.missing for r in rows)
+
+
+def test_scale_cells_to_target_sum() -> None:
+    cells = [
+        Cell("S", "A", 2.0),
+        Cell("S", "B", 2.0),
+    ]
+    scaled = scale_cells(cells, 1.0)
+    assert sum(c.rate_gbps for c in scaled) == pytest.approx(1.0)
+    assert scaled[0].rate_gbps == pytest.approx(0.5)
+    assert scale_cells(cells, None) == cells
+
+
+def test_target_rate_sum_scales_plan(tmp_path: Path, fixtures_dir: Path) -> None:
+    yaml_path = tmp_path / "controller.yaml"
+    yaml_path.write_text(
+        yaml.safe_dump(
+            {
+                "campaign_id": "scaled",
+                "matrix": str(fixtures_dir / "matrix.csv"),
+                "filelists_dir": str(fixtures_dir / "campaign"),
+                "max_rate_per_job_gbps": 0.2,
+                "default_inflight": 1,
+                "prom_url": "http://127.0.0.1:9091",
+                "target_rate_sum_gbps": 0.06,
+            }
+        ),
+        encoding="utf-8",
+    )
+    rows = build_plan(load_config(yaml_path))
+    assert sum(r.rate_gbps for r in rows) == pytest.approx(0.06)
+    assert all(r.n_jobs == 1 for r in rows)

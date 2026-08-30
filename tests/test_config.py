@@ -21,6 +21,9 @@ def test_load_fixture_config(fixtures_dir: Path) -> None:
     assert config.condor_pool is None
     assert config.cmssw == "CMSSW_20_1_0_pre2"
     assert config.keep_claim_idle_s == 600
+    assert config.max_bytes == 32_000_000
+    assert config.chunk_bytes == 8_000_000
+    assert config.target_rate_sum_gbps is None
 
 
 def test_xrdhover_expands_home(tmp_path: Path, fixtures_dir: Path, monkeypatch: object) -> None:
@@ -111,4 +114,42 @@ def test_rejects_non_positive_rate(tmp_path: Path, fixtures_dir: Path) -> None:
         encoding="utf-8",
     )
     with pytest.raises(ConfigError, match="max_rate_per_job_gbps"):
+        load_config(path)
+
+
+def test_rejects_chunk_bytes_over_8mb(tmp_path: Path, fixtures_dir: Path) -> None:
+    path = tmp_path / "bad.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "campaign_id": "x",
+                "matrix": str(fixtures_dir / "matrix.csv"),
+                "max_rate_per_job_gbps": 0.1,
+                "default_inflight": 1,
+                "chunk_bytes": 16_000_000_000,
+                "prom_url": "http://127.0.0.1:9091",
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="chunk_bytes"):
+        load_config(path)
+
+
+def test_rejects_max_bytes_zero(tmp_path: Path, fixtures_dir: Path) -> None:
+    path = tmp_path / "bad.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "campaign_id": "x",
+                "matrix": str(fixtures_dir / "matrix.csv"),
+                "max_rate_per_job_gbps": 0.1,
+                "default_inflight": 1,
+                "prom_url": "http://127.0.0.1:9091",
+                "max_bytes": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="max_bytes"):
         load_config(path)

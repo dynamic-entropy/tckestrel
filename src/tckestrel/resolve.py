@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
 from tckestrel.cache import PrefixCache
-from tckestrel.campaign import CampaignError, Link, load_links, load_sidecar_rows
+from tckestrel.campaign import (
+    CampaignError,
+    Link,
+    SidecarRow,
+    load_links,
+    load_sidecar_rows,
+)
 from tckestrel.config import Config
 from tckestrel.pfn import ParsedPfn, PfnError, apply_prefix, parse_root_pfn
+from tckestrel.plan import build_plan
 from tckestrel.rucio_backend import LiveRucio, RucioBackend
 from tckestrel.site_map import SiteMapError, load_default_rse
 
@@ -122,20 +130,51 @@ def _stamp(rse: str, lfns: list[str], backend: RucioBackend, cache: PrefixCache)
     return stamped, False
 
 
+def sidecar_target_bytes(rate_gbps: float, duration_s: int) -> int:
+    """Unique bytes for one job wall at the (scaled) cell rate. Not ``chunk_bytes``."""
+    if rate_gbps <= 0:
+        raise ResolveError("cell rate_gbps must be > 0")
+    if duration_s < 1:
+        raise ResolveError("job_duration_s must be >= 1")
+    return max(1, math.ceil(rate_gbps * 1e9 / 8.0 * duration_s))
+
+
+def choose_sidecar_rows(rows: list[SidecarRow], target_bytes: int) -> list[SidecarRow]:
+    """Take LFNs until sizes sum to ``target_bytes`` (job wall × cell rate)."""
+    if not rows:
+        raise ResolveError("sidecar has no LFNs")
+    if target_bytes < 1:
+        raise ResolveError("sidecar target_bytes must be >= 1")
+    chosen: list[SidecarRow] = []
+    acc = 0
+    for row in rows:
+        chosen.append(row)
+        if row.size_bytes is None:
+            break
+        acc += row.size_bytes
+        if acc >= target_bytes:
+            break
+    return chosen
+
+
+def planned_cell_rate(config: Config, source: str, dest: str) -> float:
+    for row in build_plan(config):
+        if row.source == source and row.dest == dest:
+            return row.rate_gbps
+    raise ResolveError(f"no matrix cell {source},{dest}")
+
+
 def resolve_cell(
     config: Config,
     source: str,
     dest: str,
     *,
-    limit: int = 3,
     backend: RucioBackend | None = None,
     cache: PrefixCache | None = None,
     site_map: Path | None = None,
 ) -> ResolvedSlice:
     if config.filelists_dir is None:
         raise ResolveError("filelists_dir is required to resolve PFNs")
-    if limit < 1:
-        raise ResolveError("limit must be >= 1")
 
     try:
         links = load_links(config.filelists_dir)
@@ -149,7 +188,9 @@ def resolve_cell(
         rows = load_sidecar_rows(link.sidecar)
     except CampaignError as exc:
         raise ResolveError(str(exc)) from exc
-    chosen = rows[:limit]
+    chosen = choose_sidecar_rows(
+        rows, sidecar_target_bytes(planned_cell_rate(config, source, dest), config.job_duration_s)
+    )
     lfns = [row.lfn for row in chosen]
     rse = pick_rse(
         source=source,

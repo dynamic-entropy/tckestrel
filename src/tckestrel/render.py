@@ -60,7 +60,7 @@ def format_duration(seconds: int) -> str:
 
 def format_size(n: int) -> str:
     if n < 1:
-        raise RenderError("max_bytes / chunk_bytes must be >= 1")
+        raise RenderError("max_bytes / chunk_bytes (read_size) must be >= 1")
     for unit, scale in (
         ("GiB", 1024**3),
         ("GB", 10**9),
@@ -79,9 +79,10 @@ def run_id_for(campaign_id: str, source: str, dest: str) -> str:
 
 
 def pattern_max_bytes(config: Config) -> int:
-    if config.max_bytes > 0:
-        return config.max_bytes
-    return config.chunk_bytes
+    """Bytes to read from one file (session). Not the XRootD read size."""
+    if config.max_bytes < 1:
+        raise RenderError("max_bytes must be >= 1 (bytes per file, not read_size)")
+    return config.max_bytes
 
 
 def default_out_dir(config: Config, source: str, dest: str, job_id: str) -> Path:
@@ -109,6 +110,7 @@ def build_workload(
         raise RenderError(f"endpoint is not root:// : {resolved.endpoint}")
     rate = format_si_bit_rate(cell.job_rate_gbps)
     size = format_size(pattern_max_bytes(config))
+    read_size = format_size(config.chunk_bytes)
     if size == "auto":
         raise RenderError("pattern.max_bytes must not be auto")
     name = f"{resolved.source}__{resolved.dest}"
@@ -127,7 +129,7 @@ def build_workload(
                 "max_inflight": 16,
                 "pattern": {
                     "type": "sequential",
-                    "read_size": "1MiB",
+                    "read_size": read_size,
                     "max_bytes": size,
                 },
             }
@@ -179,7 +181,6 @@ def render_cell(
     source: str,
     dest: str,
     *,
-    limit: int = 3,
     job_id: str | None = None,
     out_dir: Path | None = None,
     backend: RucioBackend | None = None,
@@ -194,7 +195,6 @@ def render_cell(
         config,
         source,
         dest,
-        limit=limit,
         backend=backend,
         cache=store,
         site_map=site_map,

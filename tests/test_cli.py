@@ -92,8 +92,6 @@ def test_resolve_cli_uses_mock_backend(
             str(fixtures_dir / "controller.yaml"),
             "--cell",
             "T2_CH_CERN,T1_US_FNAL",
-            "--limit",
-            "1",
         ]
     )
     captured = capsys.readouterr()
@@ -125,8 +123,6 @@ def test_render_cli_writes_job(
             str(fixtures_dir / "controller.yaml"),
             "--cell",
             "T2_CH_CERN,T1_US_FNAL",
-            "--limit",
-            "1",
             "--out",
             str(out),
             "--job-id",
@@ -174,8 +170,6 @@ def test_submit_cli_dry_run_writes_sub(
             str(fixtures_dir / "controller.yaml"),
             "--cell",
             "T2_CH_CERN,T1_US_FNAL",
-            "--limit",
-            "1",
             "--out",
             str(out),
             "--job-id",
@@ -227,8 +221,6 @@ def test_submit_cli_queues_with_mock(
             str(fixtures_dir / "controller.yaml"),
             "--cell",
             "T2_CH_CERN,T1_US_FNAL",
-            "--limit",
-            "1",
             "--out",
             str(tmp_path / "queued"),
             "--job-id",
@@ -330,8 +322,6 @@ def test_resolve_cli_bad_rucio_config(
             str(fixtures_dir / "controller.yaml"),
             "--cell",
             "T2_CH_CERN,T1_US_FNAL",
-            "--limit",
-            "1",
         ]
     )
     captured = capsys.readouterr()

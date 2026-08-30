@@ -43,6 +43,20 @@ def derive_job_rate(rate_gbps: float, n_jobs: int) -> float:
     return rate_gbps / n_jobs
 
 
+def scale_cells(cells: list[Cell], target_sum_gbps: float | None) -> list[Cell]:
+    """Uniformly scale matrix rates so they sum to ``target_sum_gbps``."""
+    if target_sum_gbps is None:
+        return cells
+    current = sum(cell.rate_gbps for cell in cells)
+    if current <= 0:
+        raise PlanError("matrix rate sum must be > 0 to scale")
+    factor = target_sum_gbps / current
+    return [
+        Cell(source=cell.source, dest=cell.dest, rate_gbps=cell.rate_gbps * factor)
+        for cell in cells
+    ]
+
+
 def _from_cell(cell: Cell, config: Config, link: Link | None, *, missing: bool) -> PlannedCell:
     n_jobs = derive_n(
         cell.rate_gbps, config.max_rate_per_job_gbps, config.default_inflight
@@ -74,7 +88,7 @@ def _from_cell(cell: Cell, config: Config, link: Link | None, *, missing: bool) 
 
 
 def build_plan(config: Config) -> list[PlannedCell]:
-    cells = load_cells(config.matrix)
+    cells = scale_cells(load_cells(config.matrix), config.target_rate_sum_gbps)
     if config.filelists_dir is None:
         return [_from_cell(cell, config, None, missing=False) for cell in cells]
 

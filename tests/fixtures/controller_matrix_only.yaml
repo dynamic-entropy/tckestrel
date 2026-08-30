@@ -3,5 +3,5 @@ matrix: matrix.csv
 
 max_rate_per_job_gbps: 0.1
 default_inflight: 1
-chunk_bytes: 16000000000
+chunk_bytes: 8000000   # one XRootD Read(); max 8 MB
 prom_url: http://127.0.0.1:9091

@@ -33,6 +33,8 @@ def test_format_duration() -> None:
 def test_format_size() -> None:
     assert format_size(16000000000) == "16GB"
     assert format_size(16 * 1024**3) == "16GiB"
+    assert format_size(32_000_000) == "32MB"
+    assert format_size(8_000_000) == "8MB"
     assert format_size(7) == "7"
 
 
@@ -43,7 +45,6 @@ def test_render_fixture_cell_shape(fixtures_dir: Path, tmp_path: Path) -> None:
         config,
         "T2_CH_CERN",
         "T1_US_FNAL",
-        limit=1,
         job_id="render.0",
         out_dir=tmp_path / "job",
         backend=backend,
@@ -68,7 +69,8 @@ def test_render_fixture_cell_shape(fixtures_dir: Path, tmp_path: Path) -> None:
     assert target["endpoint"] == "root://eoscms.cern.ch:1094/"
     assert target["filelist"] == "files.txt"
     assert target["target_rate"] == "17Mbps"
-    assert target["pattern"]["max_bytes"] == "16GB"
+    assert target["pattern"]["read_size"] == "8MB"
+    assert target["pattern"]["max_bytes"] == "32MB"
     assert target["pattern"]["max_bytes"] != "auto"
     assert result.workload["sinks"]["job_id"] == "render.0"
     assert result.workload["sinks"]["pushgateway"]["url"] == "http://127.0.0.1:9091"
@@ -86,7 +88,6 @@ def test_render_unique_job_ids(fixtures_dir: Path, tmp_path: Path) -> None:
         config,
         "T2_CH_CERN",
         "T1_US_FNAL",
-        limit=1,
         out_dir=tmp_path / "a",
         backend=backend,
         cache=PrefixCache(tmp_path / "cache.json"),
@@ -95,7 +96,6 @@ def test_render_unique_job_ids(fixtures_dir: Path, tmp_path: Path) -> None:
         config,
         "T2_CH_CERN",
         "T1_US_FNAL",
-        limit=1,
         out_dir=tmp_path / "b",
         backend=backend,
         cache=PrefixCache(tmp_path / "cache.json"),
@@ -114,7 +114,6 @@ def test_render_validate_stub(fixtures_dir: Path, tmp_path: Path) -> None:
         config,
         "T2_CH_CERN",
         "T1_US_FNAL",
-        limit=1,
         job_id="ok.0",
         out_dir=tmp_path / "job",
         backend=backend,
@@ -136,7 +135,6 @@ def test_render_validate_nonzero(fixtures_dir: Path, tmp_path: Path) -> None:
             config,
             "T2_CH_CERN",
             "T1_US_FNAL",
-            limit=1,
             out_dir=tmp_path / "job",
             backend=backend,
             cache=PrefixCache(tmp_path / "cache.json"),

@@ -43,7 +43,7 @@ Stamp a cell's LFNs with pinned `root://` PFNs (`RSEClient.lfns2pfns`, then a pe
 Uses the packaged CMS client endpoints (`cms-rucio.cern.ch`, `x509_proxy`). `ca_cert` is taken from `X509_CERT_DIR`, then `/cvmfs/cms.cern.ch/grid/etc/grid-security/certificates`, then `/etc/grid-security/certificates`. Override the client file with `RUCIO_CONFIG`. Requires a CMS VOMS proxy.
 
 ```sh
-uv run tckestrel resolve --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FNAL --limit 3
+uv run tckestrel resolve --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FNAL
 ```
 
 Lists without an `rse` column use `--site-map`, `site_map:` in the YAML, or `filelists_dir/site_map.csv`.
@@ -53,10 +53,12 @@ Lists without an `rse` column use `--site-map`, `site_map:` in the YAML, or `fil
 Write `job.json` and `files.txt` for one cell.
 
 ```sh
-uv run tckestrel render --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FNAL --limit 3
+uv run tckestrel render --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FNAL
 ```
 
 `--out` sets the output directory. `--job-id` sets `sinks.job_id` (default: a new UUID). `--validate` runs `xrdhover validate` on the written JSON.
+
+`chunk_bytes` is one XRootD `Read()` (`pattern.read_size`, default 8 MB, max 8 MB). `max_bytes` is bytes from one file (`pattern.max_bytes`, default 32 MB). `target_rate_sum_gbps` scales the Spark matrix. A submit takes LFNs for `cell_rate × job_duration_s`, not the whole sidecar.
 
 ## payload
 
@@ -79,8 +81,8 @@ uv run tckestrel payload --config examples/controller.yaml
 Write `job.sub` next to `job.json` and `files.txt`. `--submit` queues the job on the schedd.
 
 ```sh
-uv run tckestrel submit --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FNAL --limit 3
-uv run tckestrel submit --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FNAL --limit 3 --submit
+uv run tckestrel submit --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FNAL
+uv run tckestrel submit --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FNAL --submit
 uv run tckestrel jobs --config examples/controller.yaml
 uv run tckestrel rm --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FNAL
 ```

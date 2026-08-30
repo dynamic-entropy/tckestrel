@@ -96,7 +96,6 @@ def format_resolve(result: ResolvedSlice) -> str:
 def _cmd_resolve(
     config_path: str,
     cell: str,
-    limit: int,
     site_map: str | None,
 ) -> int:
     try:
@@ -106,7 +105,6 @@ def _cmd_resolve(
             config,
             source,
             dest,
-            limit=limit,
             backend=default_backend(),
             cache=PrefixCache(cache_file(config)),
             site_map=Path(site_map) if site_map else None,
@@ -159,7 +157,6 @@ def format_render(result: RenderedJob) -> str:
 def _cmd_render(
     config_path: str,
     cell: str,
-    limit: int,
     site_map: str | None,
     out: str | None,
     job_id: str | None,
@@ -177,7 +174,6 @@ def _cmd_render(
             config,
             source,
             dest,
-            limit=limit,
             job_id=job_id,
             out_dir=Path(out) if out else None,
             backend=default_backend(),
@@ -225,7 +221,6 @@ def format_submit(result: SubmittedJob) -> str:
 def _cmd_submit(
     config_path: str,
     cell: str,
-    limit: int,
     site_map: str | None,
     out: str | None,
     job_id: str | None,
@@ -241,7 +236,6 @@ def _cmd_submit(
             config,
             source,
             dest,
-            limit=limit,
             job_id=job_id,
             out_dir=Path(out) if out else None,
             backend=default_backend(),
@@ -357,7 +351,6 @@ def build_parser() -> argparse.ArgumentParser:
     resolve = sub.add_parser("resolve", help="stamp a cell's LFNs with root:// PFNs")
     resolve.add_argument("--config", required=True, help="path to controller YAML")
     resolve.add_argument("--cell", required=True, help="SOURCE,DEST")
-    resolve.add_argument("--limit", type=int, default=3, help="LFNs to resolve (default 3)")
     resolve.add_argument("--site-map", dest="site_map", help="site_map.csv when the sidecar has no rse column")
     payload = sub.add_parser("payload", help="ensure the xrdhover release binary is on disk")
     payload.add_argument("--config", required=True, help="path to controller YAML")
@@ -366,7 +359,6 @@ def build_parser() -> argparse.ArgumentParser:
     render = sub.add_parser("render", help="write job.json and files.txt for a cell")
     render.add_argument("--config", required=True, help="path to controller YAML")
     render.add_argument("--cell", required=True, help="SOURCE,DEST")
-    render.add_argument("--limit", type=int, default=3, help="LFNs to stamp (default 3)")
     render.add_argument("--site-map", dest="site_map", help="site_map.csv when the sidecar has no rse column")
     render.add_argument("--out", help="directory for job.json and files.txt")
     render.add_argument("--job-id", dest="job_id", help="sinks.job_id (default: new UUID)")
@@ -378,7 +370,6 @@ def build_parser() -> argparse.ArgumentParser:
     submit = sub.add_parser("submit", help="write a Condor submit file; --submit to queue it")
     submit.add_argument("--config", required=True, help="path to controller YAML")
     submit.add_argument("--cell", required=True, help="SOURCE,DEST")
-    submit.add_argument("--limit", type=int, default=3, help="LFNs to stamp (default 3)")
     submit.add_argument("--site-map", dest="site_map", help="site_map.csv when the sidecar has no rse column")
     submit.add_argument("--out", help="directory for job.json, files.txt, and job.sub")
     submit.add_argument("--job-id", dest="job_id", help="sinks.job_id (default: new UUID)")
@@ -410,14 +401,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "plan":
         return _cmd_plan(args.config)
     if args.command == "resolve":
-        return _cmd_resolve(args.config, args.cell, args.limit, args.site_map)
+        return _cmd_resolve(args.config, args.cell, args.site_map)
     if args.command == "payload":
         return _cmd_payload(args.config, args.arch, args.dest)
     if args.command == "render":
         return _cmd_render(
             args.config,
             args.cell,
-            args.limit,
             args.site_map,
             args.out,
             args.job_id,
@@ -427,7 +417,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_submit(
             args.config,
             args.cell,
-            args.limit,
             args.site_map,
             args.out,
             args.job_id,

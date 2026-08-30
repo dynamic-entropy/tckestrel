@@ -11,13 +11,18 @@ import yaml
 DEFAULT_XRDHOVER_VERSION = "latest"
 DEFAULT_CMSSW = "CMSSW_20_1_0_pre2"
 DEFAULT_KEEP_CLAIM_IDLE_S = 600
+# Per-file session cap (pattern.max_bytes). Small vs target_rate so the
+# token bucket sees many sessions, not one PREMIX-sized read.
+DEFAULT_SESSION_MAX_BYTES = 32_000_000
+# One XRootD Read() / pattern.read_size. Not the LFN-pool slice.
+DEFAULT_READ_SIZE_BYTES = 8_000_000
+MAX_READ_SIZE_BYTES = 8_000_000
 
 REQUIRED = (
     "campaign_id",
     "matrix",
     "max_rate_per_job_gbps",
     "default_inflight",
-    "chunk_bytes",
     "prom_url",
 )
 
@@ -33,11 +38,11 @@ class Config:
     filelists_dir: Path | None
     max_rate_per_job_gbps: float
     default_inflight: int
-    chunk_bytes: int
     prom_url: str
+    chunk_bytes: int = DEFAULT_READ_SIZE_BYTES
     job_duration_s: int = 7200
     recycle_after_s: int = 7200
-    max_bytes: int = 0
+    max_bytes: int = DEFAULT_SESSION_MAX_BYTES
     snapshot_interval_s: int = 15
     site_map: Path | None = None
     xrdhover: Path | None = None
@@ -51,6 +56,7 @@ class Config:
     condor_schedd: str | None = None
     cmssw: str = DEFAULT_CMSSW
     keep_claim_idle_s: int = DEFAULT_KEEP_CLAIM_IDLE_S
+    target_rate_sum_gbps: float | None = None
     source_path: Path | None = None
 
 
@@ -69,6 +75,12 @@ def resolve_path(raw: str, config_dir: Path) -> Path:
     if cwd_rel.exists():
         return cwd_rel
     return config_rel
+
+
+def _optional_positive_float(name: str, value: object) -> float | None:
+    if value in (None, ""):
+        return None
+    return _require_positive_float(name, value)
 
 
 def _require_positive_float(name: str, value: object) -> float:
@@ -102,7 +114,9 @@ def _require_cmssw(value: object) -> str:
     return text
 
 
-def _require_int(name: str, value: object, *, minimum: int) -> int:
+def _require_int(
+    name: str, value: object, *, minimum: int, maximum: int | None = None
+) -> int:
     if isinstance(value, bool):
         raise ConfigError(f"{name} must be an integer")
     if isinstance(value, int):
@@ -119,6 +133,8 @@ def _require_int(name: str, value: object, *, minimum: int) -> int:
         number = int(as_float)
     if number < minimum:
         raise ConfigError(f"{name} must be >= {minimum}")
+    if maximum is not None and number > maximum:
+        raise ConfigError(f"{name} must be <= {maximum}")
     return number
 
 
@@ -166,7 +182,12 @@ def load_config(path: str | Path) -> Config:
         default_inflight=_require_int(
             "default_inflight", raw["default_inflight"], minimum=1
         ),
-        chunk_bytes=_require_int("chunk_bytes", raw["chunk_bytes"], minimum=1),
+        chunk_bytes=_require_int(
+            "chunk_bytes",
+            raw.get("chunk_bytes", DEFAULT_READ_SIZE_BYTES),
+            minimum=1,
+            maximum=MAX_READ_SIZE_BYTES,
+        ),
         prom_url=str(raw["prom_url"]),
         job_duration_s=_require_int(
             "job_duration_s", raw.get("job_duration_s", 7200), minimum=1
@@ -174,7 +195,11 @@ def load_config(path: str | Path) -> Config:
         recycle_after_s=_require_int(
             "recycle_after_s", raw.get("recycle_after_s", 7200), minimum=1
         ),
-        max_bytes=_require_int("max_bytes", raw.get("max_bytes", 0), minimum=0),
+        max_bytes=_require_int(
+            "max_bytes",
+            raw.get("max_bytes", DEFAULT_SESSION_MAX_BYTES),
+            minimum=1,
+        ),
         snapshot_interval_s=_require_int(
             "snapshot_interval_s", raw.get("snapshot_interval_s", 15), minimum=1
         ),
@@ -197,6 +222,9 @@ def load_config(path: str | Path) -> Config:
             "keep_claim_idle",
             raw.get("keep_claim_idle", DEFAULT_KEEP_CLAIM_IDLE_S),
             minimum=0,
+        ),
+        target_rate_sum_gbps=_optional_positive_float(
+            "target_rate_sum_gbps", raw.get("target_rate_sum_gbps")
         ),
         source_path=config_path,
     )
