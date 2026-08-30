@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -74,8 +73,13 @@ def format_size(n: int) -> str:
     return str(n)
 
 
-def run_id_for(campaign_id: str, source: str, dest: str) -> str:
-    return f"{campaign_id}/{source}__{dest}"
+def link_id(source: str, dest: str) -> str:
+    """Human-readable Prom / job key: SOURCE__DEST."""
+    return f"{source}__{dest}"
+
+
+def run_id_for(source: str, dest: str) -> str:
+    return link_id(source, dest)
 
 
 def pattern_max_bytes(config: Config) -> int:
@@ -113,10 +117,10 @@ def build_workload(
     read_size = format_size(config.chunk_bytes)
     if size == "auto":
         raise RenderError("pattern.max_bytes must not be auto")
-    name = f"{resolved.source}__{resolved.dest}"
+    name = link_id(resolved.source, resolved.dest)
     return {
         "schema_version": 1,
-        "run_id": run_id_for(config.campaign_id, resolved.source, resolved.dest),
+        "run_id": run_id_for(resolved.source, resolved.dest),
         "duration": format_duration(config.job_duration_s),
         "seed": 1,
         "auth": {"mode": "x509"},
@@ -199,7 +203,7 @@ def render_cell(
         cache=store,
         site_map=site_map,
     )
-    issued = job_id or uuid.uuid4().hex
+    issued = job_id or link_id(resolved.source, resolved.dest)
     dest_dir = out_dir if out_dir is not None else default_out_dir(config, source, dest, issued)
     dest_dir.mkdir(parents=True, exist_ok=True)
     workload = build_workload(config, cell, resolved, issued)

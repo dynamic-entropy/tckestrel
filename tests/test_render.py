@@ -61,7 +61,7 @@ def test_render_fixture_cell_shape(fixtures_dir: Path, tmp_path: Path) -> None:
         "sinks",
     }
     assert result.workload["schema_version"] == 1
-    assert result.workload["run_id"] == "test-6cell/T2_CH_CERN__T1_US_FNAL"
+    assert result.workload["run_id"] == "T2_CH_CERN__T1_US_FNAL"
     assert result.workload["duration"] == "2h"
     assert result.workload["auth"] == {"mode": "x509"}
     target = result.workload["targets"][0]
@@ -81,7 +81,7 @@ def test_render_fixture_cell_shape(fixtures_dir: Path, tmp_path: Path) -> None:
     )
 
 
-def test_render_unique_job_ids(fixtures_dir: Path, tmp_path: Path) -> None:
+def test_render_link_ids(fixtures_dir: Path, tmp_path: Path) -> None:
     config = load_config(fixtures_dir / "controller.yaml")
     backend = MappingBackend({CERN_LFN: CERN_PFN})
     first = render_cell(
@@ -100,8 +100,8 @@ def test_render_unique_job_ids(fixtures_dir: Path, tmp_path: Path) -> None:
         backend=backend,
         cache=PrefixCache(tmp_path / "cache.json"),
     )
-    assert first.job_id != second.job_id
-    assert first.run_id == second.run_id
+    assert first.job_id == second.job_id == "T2_CH_CERN__T1_US_FNAL"
+    assert first.run_id == second.run_id == "T2_CH_CERN__T1_US_FNAL"
 
 
 def test_render_validate_stub(fixtures_dir: Path, tmp_path: Path) -> None:

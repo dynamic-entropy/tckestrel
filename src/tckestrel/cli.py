@@ -361,7 +361,7 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--cell", required=True, help="SOURCE,DEST")
     render.add_argument("--site-map", dest="site_map", help="site_map.csv when the sidecar has no rse column")
     render.add_argument("--out", help="directory for job.json and files.txt")
-    render.add_argument("--job-id", dest="job_id", help="sinks.job_id (default: new UUID)")
+    render.add_argument("--job-id", dest="job_id", help="sinks.job_id (default: SOURCE__DEST)")
     render.add_argument(
         "--validate",
         action="store_true",
@@ -372,7 +372,7 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--cell", required=True, help="SOURCE,DEST")
     submit.add_argument("--site-map", dest="site_map", help="site_map.csv when the sidecar has no rse column")
     submit.add_argument("--out", help="directory for job.json, files.txt, and job.sub")
-    submit.add_argument("--job-id", dest="job_id", help="sinks.job_id (default: new UUID)")
+    submit.add_argument("--job-id", dest="job_id", help="sinks.job_id (default: SOURCE__DEST)")
     submit.add_argument("--validate", action="store_true", help="run xrdhover validate before submit")
     submit.add_argument(
         "--submit",

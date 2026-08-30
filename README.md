@@ -56,7 +56,7 @@ Write `job.json` and `files.txt` for one cell.
 uv run tckestrel render --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FNAL
 ```
 
-`--out` sets the output directory. `--job-id` sets `sinks.job_id` (default: a new UUID). `--validate` runs `xrdhover validate` on the written JSON.
+`--out` sets the output directory. `--job-id` sets `sinks.job_id` (default: `SOURCE__DEST`). `--validate` runs `xrdhover validate` on the written JSON.
 
 `chunk_bytes` is one XRootD `Read()` (`pattern.read_size`, default 8 MB, max 8 MB). `max_bytes` is bytes from one file (`pattern.max_bytes`, default 32 MB). `target_rate_sum_gbps` scales the Spark matrix. A submit takes LFNs for `cell_rate × job_duration_s`, not the whole sidecar.
 
