@@ -26,7 +26,48 @@ source /cvmfs/cms.cern.ch/rucio/setup.sh
 
 Rucio and HTCondor are imported when the corresponding command runs.
 
-YAML paths (`matrix`, `filelists_dir`, `site_map`, `xrdhover`, `xrdhover_dir`) are resolved relative to the config file, then the current working directory. `$HOME` and `~` are expanded.
+YAML paths (`matrix`, `filelists_dir`, `site_map`, `payload.xrdhover`, `payload.xrdhover_dir`) are resolved relative to the config file, then the current working directory. `$HOME` and `~` are expanded.
+
+Keys group under the CLI command that uses them. Top-level keys still load (the live cmscon file is flat). Nested wins if both are set.
+
+```yaml
+campaign_id: premix-2026-08-29
+matrix: output/bidirectional.csv
+filelists_dir: output/2026-08-29/tckestrel_premix
+
+plan:        # tckestrel plan — N, job rate, read sizes
+  max_rate_per_job_gbps: 0.2
+  default_inflight: 1
+  chunk_bytes: 8000000
+  max_bytes: 32000000
+  job_duration_s: 1800
+  target_rate_sum_gbps: 0.4
+
+payload:     # tckestrel payload — binary + WN cmsenv
+  xrdhover_version: "0.3.0"
+  required_os: rhel9
+  # cmssw: CMSSW_20_1_0_pre2
+
+submit:      # tckestrel submit — Condor, Pushgateway, slot claim
+  prom_url: https://xrdprom.cern.ch:2094
+  snapshot_interval_s: 15
+  condor_pool: vocms4100.cern.ch   # collector (-pool), not a schedd
+  request_cpus: 1
+  request_memory_mb: 1024
+  request_disk_mb: 1024
+  # proxy_min_ttl_s: 25200         # loaded; not checked yet
+
+loop:        # not a CLI command yet (dev_plan step 7). Loaded, not actuated.
+  idle_cap_per_cell: 4
+  max_idle_per_dest: 20
+  max_jobs_per_dest: 50
+  max_jobs_global: 200
+  submits_per_minute: 10
+  min_job_lifetime_s: 120
+  recycle_after_s: 7200
+  deadband_frac: 0.05
+  ramp_jobs_per_tick: 1
+```
 
 ## CLI
 
@@ -66,7 +107,7 @@ uv run tckestrel rm --config examples/controller.yaml
 
 `resolve` needs a CMS VOMS proxy (`source /cvmfs/cms.cern.ch/rucio/setup.sh`). Packaged client endpoints: `cms-rucio.cern.ch`, `x509_proxy`. `ca_cert` from `X509_CERT_DIR`, then CVMFS grid certs, then `/etc/grid-security/certificates`. Override with `RUCIO_CONFIG`.
 
-`chunk_bytes` is one XRootD `Read()` (`pattern.read_size`, default 8 MB, max 8 MB). `max_bytes` is bytes from one file. `target_rate_sum_gbps` scales the Spark matrix. A submit takes LFNs for `cell_rate × job_duration_s`, not the whole sidecar.
+`plan.chunk_bytes` is one XRootD `Read()` (`pattern.read_size`, default 8 MB, max 8 MB). `plan.max_bytes` is bytes from one file. `plan.target_rate_sum_gbps` scales the Spark matrix. A submit takes LFNs for `cell_rate × job_duration_s`, not the whole sidecar.
 
 ## payload
 
@@ -74,11 +115,11 @@ Fetch the [linux-amd64 release](https://github.com/dynamic-entropy/xrdhover/rele
 
 | YAML key | Default |
 |---|---|
-| `xrdhover_version` | `latest` |
-| `xrdhover_dir` | `$HOME/vendor/xrdhover` |
-| `xrdhover` | (unset; pin a file) |
-| `cmssw` | `CMSSW_20_1_0_pre2` (XRootD 6.0.2; must stay 6.x) |
-| `required_os` | `rhel9` (must match `cmssw` arch) |
+| `payload.xrdhover_version` | `latest` |
+| `payload.xrdhover_dir` | `$HOME/vendor/xrdhover` |
+| `payload.xrdhover` | (unset; pin a file) |
+| `payload.cmssw` | `CMSSW_20_1_0_pre2` (XRootD 6.0.2; must stay 6.x) |
+| `payload.required_os` | `rhel9` (must match `cmssw` arch) |
 
 ## submit file
 
@@ -94,12 +135,12 @@ Fetch the [linux-amd64 release](https://github.com/dynamic-entropy/xrdhover/rele
 | `log` | `{filelists_dir}/.tckestrel/condor.log` (campaign event log) |
 | `job_machine_attrs` | `GLIDEIN_CMSSite` (copied onto the job as `MachineAttrGLIDEIN_CMSSite0`) |
 | `x509userproxy` | `$ENV(X509_USER_PROXY)` when that file exists |
-| `request_cpus` | `request_cpus` in the YAML (default `1`) |
-| `request_memory` | `request_memory_mb` (default `2048`) |
-| `request_disk` | `request_disk_mb` (default `2048`) |
-| `keep_claim_idle` | `keep_claim_idle` in the YAML (default `600` seconds) |
+| `request_cpus` | `submit.request_cpus` (default `1`) |
+| `request_memory` | `submit.request_memory_mb` (default `2048`) |
+| `request_disk` | `submit.request_disk_mb` (default `2048`) |
+| `keep_claim_idle` | `submit.keep_claim_idle` (default `600` seconds) |
 | `+DESIRED_Sites` | dest CMS site (where the job runs) |
-| `+REQUIRED_OS` | `required_os` in the YAML (default `rhel9`) |
+| `+REQUIRED_OS` | `payload.required_os` (default `rhel9`) |
 | `+DesiredOS` | `REQUIRED_OS` (CMS Connect, same as test.jdl) |
 
 ## Tests

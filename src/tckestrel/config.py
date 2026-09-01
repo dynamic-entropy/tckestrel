@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -18,17 +18,34 @@ DEFAULT_SESSION_MAX_BYTES = 32_000_000
 DEFAULT_READ_SIZE_BYTES = 8_000_000
 MAX_READ_SIZE_BYTES = 8_000_000
 
+# CLI-aligned YAML sections. Keys may also sit at the top level (cmscon).
+SECTIONS = frozenset({"plan", "payload", "submit", "loop"})
+
 REQUIRED = (
-    "campaign_id",
-    "matrix",
-    "max_rate_per_job_gbps",
-    "default_inflight",
-    "prom_url",
+    ("campaign_id", None),
+    ("matrix", None),
+    ("max_rate_per_job_gbps", "plan"),
+    ("default_inflight", "plan"),
+    ("prom_url", "submit"),
 )
 
 
 class ConfigError(ValueError):
     """Invalid or incomplete controller YAML."""
+
+
+@dataclass(frozen=True)
+class LoopConfig:
+    """Outer-loop safety (dev_plan step 7). Loaded, not actuated yet."""
+
+    idle_cap_per_cell: int = 4
+    max_idle_per_dest: int = 20
+    max_jobs_per_dest: int = 50
+    max_jobs_global: int = 200
+    submits_per_minute: int = 10
+    min_job_lifetime_s: int = 120
+    deadband_frac: float = 0.05
+    ramp_jobs_per_tick: int = 1
 
 
 @dataclass(frozen=True)
@@ -57,6 +74,8 @@ class Config:
     cmssw: str = DEFAULT_CMSSW
     keep_claim_idle_s: int = DEFAULT_KEEP_CLAIM_IDLE_S
     target_rate_sum_gbps: float | None = None
+    proxy_min_ttl_s: int | None = None
+    loop: LoopConfig = field(default_factory=LoopConfig)
     source_path: Path | None = None
 
 
@@ -77,6 +96,26 @@ def resolve_path(raw: str, config_dir: Path) -> Path:
     return config_rel
 
 
+def _section(raw: dict, name: str) -> dict:
+    value = raw.get(name)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ConfigError(f"{name} must be a mapping")
+    return value
+
+
+def _get(raw: dict, key: str, section: str | None, default: object = None) -> object:
+    """Prefer ``section.key``; fall back to a top-level key (live cmscon YAML)."""
+    if section is not None:
+        nested = _section(raw, section)
+        if key in nested and nested[key] not in (None, ""):
+            return nested[key]
+    if key in raw and raw[key] not in (None, "") and key not in SECTIONS:
+        return raw[key]
+    return default
+
+
 def _optional_positive_float(name: str, value: object) -> float | None:
     if value in (None, ""):
         return None
@@ -90,6 +129,16 @@ def _require_positive_float(name: str, value: object) -> float:
         raise ConfigError(f"{name} must be a number") from exc
     if number <= 0:
         raise ConfigError(f"{name} must be > 0")
+    return number
+
+
+def _require_frac(name: str, value: object) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"{name} must be a number") from exc
+    if number < 0 or number > 1:
+        raise ConfigError(f"{name} must be between 0 and 1")
     return number
 
 
@@ -138,6 +187,13 @@ def _require_int(
     return number
 
 
+def _optional_path(raw: dict, key: str, section: str | None, config_dir: Path) -> Path | None:
+    value = _get(raw, key, section)
+    if value in (None, ""):
+        return None
+    return resolve_path(str(value), config_dir)
+
+
 def load_config(path: str | Path) -> Config:
     config_path = Path(path).resolve()
     if not config_path.is_file():
@@ -145,25 +201,21 @@ def load_config(path: str | Path) -> Config:
     raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ConfigError("controller YAML must be a mapping")
-    missing = [key for key in REQUIRED if key not in raw or raw[key] in (None, "")]
+    missing = [
+        key if section is None else f"{section}.{key}"
+        for key, section in REQUIRED
+        if _get(raw, key, section) in (None, "")
+    ]
     if missing:
         raise ConfigError(f"missing required fields: {', '.join(missing)}")
 
     config_dir = config_path.parent
-    matrix = resolve_path(str(raw["matrix"]), config_dir)
-    filelists_raw = raw.get("filelists_dir")
-    filelists_dir = (
-        resolve_path(str(filelists_raw), config_dir) if filelists_raw else None
-    )
-    site_map_raw = raw.get("site_map")
-    site_map = resolve_path(str(site_map_raw), config_dir) if site_map_raw else None
-    xrdhover_raw = raw.get("xrdhover")
-    xrdhover = resolve_path(str(xrdhover_raw), config_dir) if xrdhover_raw else None
-    xrdhover_dir_raw = raw.get("xrdhover_dir")
-    xrdhover_dir = (
-        resolve_path(str(xrdhover_dir_raw), config_dir) if xrdhover_dir_raw else None
-    )
-    version_raw = raw.get("xrdhover_version", DEFAULT_XRDHOVER_VERSION)
+    matrix = resolve_path(str(_get(raw, "matrix", None)), config_dir)
+    filelists_dir = _optional_path(raw, "filelists_dir", None, config_dir)
+    site_map = _optional_path(raw, "site_map", None, config_dir)
+    xrdhover = _optional_path(raw, "xrdhover", "payload", config_dir)
+    xrdhover_dir = _optional_path(raw, "xrdhover_dir", "payload", config_dir)
+    version_raw = _get(raw, "xrdhover_version", "payload", DEFAULT_XRDHOVER_VERSION)
     xrdhover_version = str(version_raw).strip()
     if xrdhover_version.lower() == "latest":
         xrdhover_version = "latest"
@@ -172,59 +224,119 @@ def load_config(path: str | Path) -> Config:
     if not xrdhover_version:
         raise ConfigError("xrdhover_version must be non-empty")
 
+    proxy_raw = _get(raw, "proxy_min_ttl_s", "submit")
+    proxy_min_ttl_s = (
+        None
+        if proxy_raw in (None, "")
+        else _require_int("proxy_min_ttl_s", proxy_raw, minimum=1)
+    )
+
     return Config(
-        campaign_id=str(raw["campaign_id"]),
+        campaign_id=str(_get(raw, "campaign_id", None)),
         matrix=matrix,
         filelists_dir=filelists_dir,
         max_rate_per_job_gbps=_require_positive_float(
-            "max_rate_per_job_gbps", raw["max_rate_per_job_gbps"]
+            "max_rate_per_job_gbps", _get(raw, "max_rate_per_job_gbps", "plan")
         ),
         default_inflight=_require_int(
-            "default_inflight", raw["default_inflight"], minimum=1
+            "default_inflight", _get(raw, "default_inflight", "plan"), minimum=1
         ),
         chunk_bytes=_require_int(
             "chunk_bytes",
-            raw.get("chunk_bytes", DEFAULT_READ_SIZE_BYTES),
+            _get(raw, "chunk_bytes", "plan", DEFAULT_READ_SIZE_BYTES),
             minimum=1,
             maximum=MAX_READ_SIZE_BYTES,
         ),
-        prom_url=str(raw["prom_url"]),
+        prom_url=str(_get(raw, "prom_url", "submit")),
         job_duration_s=_require_int(
-            "job_duration_s", raw.get("job_duration_s", 7200), minimum=1
+            "job_duration_s",
+            _get(raw, "job_duration_s", "plan", 7200),
+            minimum=1,
         ),
         recycle_after_s=_require_int(
-            "recycle_after_s", raw.get("recycle_after_s", 7200), minimum=1
+            "recycle_after_s",
+            _get(raw, "recycle_after_s", "loop", 7200),
+            minimum=1,
         ),
         max_bytes=_require_int(
             "max_bytes",
-            raw.get("max_bytes", DEFAULT_SESSION_MAX_BYTES),
+            _get(raw, "max_bytes", "plan", DEFAULT_SESSION_MAX_BYTES),
             minimum=1,
         ),
         snapshot_interval_s=_require_int(
-            "snapshot_interval_s", raw.get("snapshot_interval_s", 15), minimum=1
+            "snapshot_interval_s",
+            _get(raw, "snapshot_interval_s", "submit", 15),
+            minimum=1,
         ),
         site_map=site_map,
         xrdhover=xrdhover,
         xrdhover_dir=xrdhover_dir,
         xrdhover_version=xrdhover_version,
-        required_os=_require_os(raw.get("required_os", "rhel9")),
-        request_cpus=_require_int("request_cpus", raw.get("request_cpus", 1), minimum=1),
+        required_os=_require_os(_get(raw, "required_os", "payload", "rhel9")),
+        request_cpus=_require_int(
+            "request_cpus", _get(raw, "request_cpus", "submit", 1), minimum=1
+        ),
         request_memory_mb=_require_int(
-            "request_memory_mb", raw.get("request_memory_mb", 2048), minimum=1
+            "request_memory_mb",
+            _get(raw, "request_memory_mb", "submit", 2048),
+            minimum=1,
         ),
         request_disk_mb=_require_int(
-            "request_disk_mb", raw.get("request_disk_mb", 2048), minimum=1
+            "request_disk_mb",
+            _get(raw, "request_disk_mb", "submit", 2048),
+            minimum=1,
         ),
-        condor_pool=_optional_host(raw.get("condor_pool")),
-        condor_schedd=_optional_host(raw.get("condor_schedd")),
-        cmssw=_require_cmssw(raw.get("cmssw", DEFAULT_CMSSW)),
+        condor_pool=_optional_host(_get(raw, "condor_pool", "submit")),
+        condor_schedd=_optional_host(_get(raw, "condor_schedd", "submit")),
+        cmssw=_require_cmssw(_get(raw, "cmssw", "payload", DEFAULT_CMSSW)),
         keep_claim_idle_s=_require_int(
             "keep_claim_idle",
-            raw.get("keep_claim_idle", DEFAULT_KEEP_CLAIM_IDLE_S),
+            _get(raw, "keep_claim_idle", "submit", DEFAULT_KEEP_CLAIM_IDLE_S),
             minimum=0,
         ),
         target_rate_sum_gbps=_optional_positive_float(
-            "target_rate_sum_gbps", raw.get("target_rate_sum_gbps")
+            "target_rate_sum_gbps", _get(raw, "target_rate_sum_gbps", "plan")
+        ),
+        proxy_min_ttl_s=proxy_min_ttl_s,
+        loop=LoopConfig(
+            idle_cap_per_cell=_require_int(
+                "idle_cap_per_cell",
+                _get(raw, "idle_cap_per_cell", "loop", 4),
+                minimum=0,
+            ),
+            max_idle_per_dest=_require_int(
+                "max_idle_per_dest",
+                _get(raw, "max_idle_per_dest", "loop", 20),
+                minimum=0,
+            ),
+            max_jobs_per_dest=_require_int(
+                "max_jobs_per_dest",
+                _get(raw, "max_jobs_per_dest", "loop", 50),
+                minimum=1,
+            ),
+            max_jobs_global=_require_int(
+                "max_jobs_global",
+                _get(raw, "max_jobs_global", "loop", 200),
+                minimum=1,
+            ),
+            submits_per_minute=_require_int(
+                "submits_per_minute",
+                _get(raw, "submits_per_minute", "loop", 10),
+                minimum=1,
+            ),
+            min_job_lifetime_s=_require_int(
+                "min_job_lifetime_s",
+                _get(raw, "min_job_lifetime_s", "loop", 120),
+                minimum=0,
+            ),
+            deadband_frac=_require_frac(
+                "deadband_frac", _get(raw, "deadband_frac", "loop", 0.05)
+            ),
+            ramp_jobs_per_tick=_require_int(
+                "ramp_jobs_per_tick",
+                _get(raw, "ramp_jobs_per_tick", "loop", 1),
+                minimum=1,
+            ),
         ),
         source_path=config_path,
     )
