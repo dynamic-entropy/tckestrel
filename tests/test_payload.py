@@ -2,8 +2,7 @@ import tarfile
 from pathlib import Path
 
 import pytest
-import yaml
-
+from helpers import dump_controller
 from tckestrel.config import load_config
 from tckestrel.payload import (
     DEFAULT_ARCH,
@@ -16,20 +15,13 @@ from tckestrel.payload import (
 )
 
 
-def _write_config(tmp_path: Path, fixtures_dir: Path, extra: dict | None = None) -> Path:
-    payload = {
-        "campaign_id": "x",
-        "matrix": str(fixtures_dir / "matrix.csv"),
-        "max_rate_per_job_gbps": 0.1,
-        "default_inflight": 1,
-        "chunk_bytes": 1,
-        "prom_url": "http://127.0.0.1:9091",
-    }
-    if extra:
-        payload.update(extra)
-    path = tmp_path / "controller.yaml"
-    path.write_text(yaml.safe_dump(payload), encoding="utf-8")
-    return path
+def _write_config(tmp_path: Path, fixtures_dir: Path, payload: dict | None = None) -> Path:
+    return dump_controller(
+        tmp_path / "controller.yaml",
+        matrix=fixtures_dir / "matrix.csv",
+        plan={"read_size_bytes": 1},
+        payload=payload,
+    )
 
 
 def _make_tarball(
@@ -90,7 +82,7 @@ def test_ensure_uses_existing_cache(
         _write_config(
             tmp_path,
             fixtures_dir,
-            {"xrdhover_dir": str(tmp_path / "vendor"), "xrdhover_version": "0.2.0"},
+            {"cache_dir": str(tmp_path / "vendor"), "xrdhover_version": "0.2.0"},
         )
     )
     dest = cached_binary(config, DEFAULT_ARCH, "0.2.0")
@@ -115,7 +107,7 @@ def test_ensure_downloads_missing_binary(
         _write_config(
             tmp_path,
             fixtures_dir,
-            {"xrdhover_dir": str(tmp_path / "vendor"), "xrdhover_version": "0.2.0"},
+            {"cache_dir": str(tmp_path / "vendor"), "xrdhover_version": "0.2.0"},
         )
     )
 
@@ -138,7 +130,7 @@ def test_ensure_second_arch(
         _write_config(
             tmp_path,
             fixtures_dir,
-            {"xrdhover_dir": str(tmp_path / "vendor"), "xrdhover_version": "0.2.0"},
+            {"cache_dir": str(tmp_path / "vendor"), "xrdhover_version": "0.2.0"},
         )
     )
 
@@ -158,7 +150,7 @@ def test_pinned_file_skips_download(
     pin = tmp_path / "pinned"
     pin.write_bytes(b"#!/bin/sh\n")
     pin.chmod(0o755)
-    config = load_config(_write_config(tmp_path, fixtures_dir, {"xrdhover": str(pin)}))
+    config = load_config(_write_config(tmp_path, fixtures_dir, {"binary": str(pin)}))
 
     def fail(url: str, path: Path) -> None:
         raise AssertionError(f"should not download {url}")
@@ -170,7 +162,7 @@ def test_pinned_file_skips_download(
 
 def test_missing_pin_fails(tmp_path: Path, fixtures_dir: Path) -> None:
     pin = tmp_path / "missing-bin"
-    config = load_config(_write_config(tmp_path, fixtures_dir, {"xrdhover": str(pin)}))
+    config = load_config(_write_config(tmp_path, fixtures_dir, {"binary": str(pin)}))
     with pytest.raises(PayloadError, match="pinned"):
         ensure_payload(config, download=lambda url, dest: None)
 
@@ -183,7 +175,7 @@ def test_cache_root_file_conflicts(tmp_path: Path, fixtures_dir: Path) -> None:
         _write_config(
             tmp_path,
             fixtures_dir,
-            {"xrdhover_dir": str(root), "xrdhover_version": "0.2.0"},
+            {"cache_dir": str(root), "xrdhover_version": "0.2.0"},
         )
     )
     with pytest.raises(PayloadError, match="cache root is a file"):
@@ -193,9 +185,9 @@ def test_cache_root_file_conflicts(tmp_path: Path, fixtures_dir: Path) -> None:
 def test_ensure_latest_uses_resolved_tag(tmp_path: Path, fixtures_dir: Path) -> None:
     tarball = _make_tarball(tmp_path, "0.3.1", "linux-amd64")
     config = load_config(
-        _write_config(tmp_path, fixtures_dir, {"xrdhover_dir": str(tmp_path / "vendor")})
+        _write_config(tmp_path, fixtures_dir, {"cache_dir": str(tmp_path / "vendor")})
     )
-    assert config.xrdhover_version == "latest"
+    assert config.payload.xrdhover_version == "latest"
 
     def copy_tarball(url: str, dest: Path) -> None:
         assert "/v0.3.1/xrdhover-0.3.1-linux-amd64.tar.gz" in url
@@ -215,7 +207,7 @@ def test_el9_build_os_is_accepted(tmp_path: Path, fixtures_dir: Path) -> None:
         _write_config(
             tmp_path,
             fixtures_dir,
-            {"xrdhover_dir": str(tmp_path / "vendor"), "xrdhover_version": "0.2.0"},
+            {"cache_dir": str(tmp_path / "vendor"), "xrdhover_version": "0.2.0"},
         )
     )
 
@@ -233,7 +225,7 @@ def test_el10_build_os_is_rejected(tmp_path: Path, fixtures_dir: Path) -> None:
         _write_config(
             tmp_path,
             fixtures_dir,
-            {"xrdhover_dir": str(tmp_path / "vendor"), "xrdhover_version": "0.2.0"},
+            {"cache_dir": str(tmp_path / "vendor"), "xrdhover_version": "0.2.0"},
         )
     )
 

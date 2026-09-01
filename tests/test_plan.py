@@ -1,8 +1,8 @@
 from pathlib import Path
 
 import pytest
-import yaml
 
+from helpers import dump_controller
 from tckestrel.config import load_config
 from tckestrel.matrix import Cell
 from tckestrel.plan import build_plan, has_missing, scale_cells
@@ -42,20 +42,12 @@ def test_missing_links_row(tmp_path: Path, fixtures_dir: Path) -> None:
         "source,dest,rate_gbps,rse,file_list,n_files,selected_bytes,target_bytes,shortfall\n",
         encoding="utf-8",
     )
-    yaml_path = tmp_path / "controller.yaml"
-    yaml_path.write_text(
-        yaml.safe_dump(
-            {
-                "campaign_id": "missing",
-                "matrix": str(fixtures_dir / "matrix.csv"),
-                "filelists_dir": str(campaign),
-                "max_rate_per_job_gbps": 0.1,
-                "default_inflight": 1,
-                "chunk_bytes": 1,
-                "prom_url": "http://127.0.0.1:9091",
-            }
-        ),
-        encoding="utf-8",
+    yaml_path = dump_controller(
+        tmp_path / "controller.yaml",
+        campaign_id="missing",
+        matrix=fixtures_dir / "matrix.csv",
+        filelists_dir=campaign,
+        plan={"read_size_bytes": 1},
     )
     rows = build_plan(load_config(yaml_path))
     assert len(rows) == 6
@@ -75,20 +67,12 @@ def test_scale_cells_to_target_sum() -> None:
 
 
 def test_target_rate_sum_scales_plan(tmp_path: Path, fixtures_dir: Path) -> None:
-    yaml_path = tmp_path / "controller.yaml"
-    yaml_path.write_text(
-        yaml.safe_dump(
-            {
-                "campaign_id": "scaled",
-                "matrix": str(fixtures_dir / "matrix.csv"),
-                "filelists_dir": str(fixtures_dir / "campaign"),
-                "max_rate_per_job_gbps": 0.2,
-                "default_inflight": 1,
-                "prom_url": "http://127.0.0.1:9091",
-                "target_rate_sum_gbps": 0.06,
-            }
-        ),
-        encoding="utf-8",
+    yaml_path = dump_controller(
+        tmp_path / "controller.yaml",
+        campaign_id="scaled",
+        matrix=fixtures_dir / "matrix.csv",
+        filelists_dir=fixtures_dir / "campaign",
+        plan={"max_job_rate_gbps": 0.2, "target_rate_sum_gbps": 0.06},
     )
     rows = build_plan(load_config(yaml_path))
     assert sum(r.rate_gbps for r in rows) == pytest.approx(0.06)

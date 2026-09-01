@@ -31,10 +31,10 @@ class PlannedCell:
         return self.n_jobs
 
 
-def derive_n(rate_gbps: float, max_rate_per_job_gbps: float, default_inflight: int) -> int:
-    if max_rate_per_job_gbps <= 0:
-        raise PlanError("max_rate_per_job_gbps must be > 0")
-    return max(default_inflight, math.ceil(rate_gbps / max_rate_per_job_gbps))
+def derive_n(rate_gbps: float, max_job_rate_gbps: float, min_jobs_per_cell: int) -> int:
+    if max_job_rate_gbps <= 0:
+        raise PlanError("plan.max_job_rate_gbps must be > 0")
+    return max(min_jobs_per_cell, math.ceil(rate_gbps / max_job_rate_gbps))
 
 
 def derive_job_rate(rate_gbps: float, n_jobs: int) -> float:
@@ -59,7 +59,7 @@ def scale_cells(cells: list[Cell], target_sum_gbps: float | None) -> list[Cell]:
 
 def _from_cell(cell: Cell, config: Config, link: Link | None, *, missing: bool) -> PlannedCell:
     n_jobs = derive_n(
-        cell.rate_gbps, config.max_rate_per_job_gbps, config.default_inflight
+        cell.rate_gbps, config.plan.max_job_rate_gbps, config.plan.min_jobs_per_cell
     )
     job_rate = derive_job_rate(cell.rate_gbps, n_jobs)
     if missing or link is None:
@@ -88,7 +88,7 @@ def _from_cell(cell: Cell, config: Config, link: Link | None, *, missing: bool) 
 
 
 def build_plan(config: Config) -> list[PlannedCell]:
-    cells = scale_cells(load_cells(config.matrix), config.target_rate_sum_gbps)
+    cells = scale_cells(load_cells(config.matrix), config.plan.target_rate_sum_gbps)
     if config.filelists_dir is None:
         return [_from_cell(cell, config, None, missing=False) for cell in cells]
 

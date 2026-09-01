@@ -83,8 +83,8 @@ def resolve_release_version(requested: str) -> str:
 
 
 def payload_root(config: Config) -> Path:
-    if config.xrdhover_dir is not None:
-        return config.xrdhover_dir
+    if config.payload.cache_dir is not None:
+        return config.payload.cache_dir
     return default_payload_dir()
 
 
@@ -93,8 +93,8 @@ def cached_binary(config: Config, arch: str, version: str) -> Path:
 
 
 def payload_path(config: Config, arch: str, version: str) -> Path:
-    if config.xrdhover is not None and arch == DEFAULT_ARCH:
-        return config.xrdhover
+    if config.payload.binary is not None and arch == DEFAULT_ARCH:
+        return config.payload.binary
     return cached_binary(config, arch, version)
 
 
@@ -166,14 +166,18 @@ def ensure_payload(
     resolve: VersionResolver = resolve_release_version,
 ) -> Payload:
     chosen = arch or DEFAULT_ARCH
-    pinned = config.xrdhover is not None and chosen == DEFAULT_ARCH
-    version = config.xrdhover_version if pinned else resolve(config.xrdhover_version)
+    pinned = config.payload.binary is not None and chosen == DEFAULT_ARCH
+    version = (
+        config.payload.xrdhover_version
+        if pinned
+        else resolve(config.payload.xrdhover_version)
+    )
     dest = payload_path(config, chosen, version)
     root = payload_root(config)
-    if dest != config.xrdhover and root.exists() and root.is_file():
+    if dest != config.payload.binary and root.exists() and root.is_file():
         raise PayloadError(
             f"payload cache root is a file: {root}. "
-            f"Pin it with xrdhover: or replace it with a directory"
+            f"Pin it with payload.binary or replace it with a directory"
         )
     if dest.is_file() and os.access(dest, os.X_OK):
         return Payload(path=dest, version=version, arch=chosen, fetched=False)

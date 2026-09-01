@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from helpers import dump_controller
 from tckestrel.cli import main
 from tckestrel.condor import RecordingCondor, SubmitSpec
 from tckestrel.payload import Payload
@@ -29,21 +30,12 @@ def test_plan_cli_missing_links_exits_nonzero(
         "source,dest,rate_gbps,rse,file_list,n_files,selected_bytes,target_bytes,shortfall\n",
         encoding="utf-8",
     )
-    yaml_path = tmp_path / "controller.yaml"
-    yaml_path.write_text(
-        "\n".join(
-            [
-                "campaign_id: missing",
-                f"matrix: {fixtures_dir / 'matrix.csv'}",
-                f"filelists_dir: {campaign}",
-                "max_rate_per_job_gbps: 0.1",
-                "default_inflight: 1",
-                "chunk_bytes: 1",
-                "prom_url: http://127.0.0.1:9091",
-                "",
-            ]
-        ),
-        encoding="utf-8",
+    yaml_path = dump_controller(
+        tmp_path / "controller.yaml",
+        campaign_id="missing",
+        matrix=fixtures_dir / "matrix.csv",
+        filelists_dir=campaign,
+        plan={"read_size_bytes": 1},
     )
     code = main(["plan", "--config", str(yaml_path)])
     captured = capsys.readouterr()
@@ -52,20 +44,11 @@ def test_plan_cli_missing_links_exits_nonzero(
 
 
 def test_plan_cli_rejects_rse_dests(tmp_path: Path, fixtures_dir: Path, capsys: object) -> None:
-    yaml_path = tmp_path / "controller.yaml"
-    yaml_path.write_text(
-        "\n".join(
-            [
-                "campaign_id: bad",
-                f"matrix: {fixtures_dir / 'rse_dest_matrix.csv'}",
-                "max_rate_per_job_gbps: 0.1",
-                "default_inflight: 1",
-                "chunk_bytes: 1",
-                "prom_url: http://127.0.0.1:9091",
-                "",
-            ]
-        ),
-        encoding="utf-8",
+    yaml_path = dump_controller(
+        tmp_path / "controller.yaml",
+        campaign_id="bad",
+        matrix=fixtures_dir / "rse_dest_matrix.csv",
+        plan={"read_size_bytes": 1},
     )
     code = main(["plan", "--config", str(yaml_path)])
     captured = capsys.readouterr()
@@ -338,22 +321,12 @@ def test_payload_cli_uses_cache(
     binary.parent.mkdir(parents=True)
     binary.write_bytes(b"#!/bin/sh\n")
     binary.chmod(0o755)
-    yaml_path = tmp_path / "controller.yaml"
-    yaml_path.write_text(
-        "\n".join(
-            [
-                "campaign_id: payload",
-                f"matrix: {fixtures_dir / 'matrix.csv'}",
-                "max_rate_per_job_gbps: 0.1",
-                "default_inflight: 1",
-                "chunk_bytes: 1",
-                "prom_url: http://127.0.0.1:9091",
-                f"xrdhover_dir: {dest_dir}",
-                "xrdhover_version: 0.2.0",
-                "",
-            ]
-        ),
-        encoding="utf-8",
+    yaml_path = dump_controller(
+        tmp_path / "controller.yaml",
+        campaign_id="payload",
+        matrix=fixtures_dir / "matrix.csv",
+        plan={"read_size_bytes": 1},
+        payload={"cache_dir": str(dest_dir), "xrdhover_version": "0.2.0"},
     )
     code = main(["payload", "--config", str(yaml_path)])
     captured = capsys.readouterr()

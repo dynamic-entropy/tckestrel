@@ -26,47 +26,28 @@ source /cvmfs/cms.cern.ch/rucio/setup.sh
 
 Rucio and HTCondor are imported when the corresponding command runs.
 
-YAML paths (`matrix`, `filelists_dir`, `site_map`, `payload.xrdhover`, `payload.xrdhover_dir`) are resolved relative to the config file, then the current working directory. `$HOME` and `~` are expanded.
-
-Keys group under the CLI command that uses them. Top-level keys still load (the live cmscon file is flat). Nested wins if both are set.
+YAML is nested under `plan` / `payload` / `submit` / `loop`. Every key is documented in [docs/configuration.md](docs/configuration.md). Paths (`matrix`, `filelists_dir`, `site_map`, `payload.binary`, `payload.cache_dir`) are resolved relative to the config file, then the current working directory. `$HOME` and `~` are expanded.
 
 ```yaml
 campaign_id: premix-2026-08-29
 matrix: output/bidirectional.csv
 filelists_dir: output/2026-08-29/tckestrel_premix
 
-plan:        # tckestrel plan — N, job rate, read sizes
-  max_rate_per_job_gbps: 0.2
-  default_inflight: 1
-  chunk_bytes: 8000000
-  max_bytes: 32000000
+plan:
+  max_job_rate_gbps: 0.2
+  min_jobs_per_cell: 1
+  read_size_bytes: 8000000
+  max_bytes_per_file: 32000000
   job_duration_s: 1800
   target_rate_sum_gbps: 0.4
 
-payload:     # tckestrel payload — binary + WN cmsenv
+payload:
   xrdhover_version: "0.3.0"
   required_os: rhel9
-  # cmssw: CMSSW_20_1_0_pre2
 
-submit:      # tckestrel submit — Condor, Pushgateway, slot claim
-  prom_url: https://xrdprom.cern.ch:2094
-  snapshot_interval_s: 15
-  condor_pool: vocms4100.cern.ch   # collector (-pool), not a schedd
-  request_cpus: 1
-  request_memory_mb: 1024
-  request_disk_mb: 1024
-  # proxy_min_ttl_s: 25200         # loaded; not checked yet
-
-loop:        # not a CLI command yet (dev_plan step 7). Loaded, not actuated.
-  idle_cap_per_cell: 4
-  max_idle_per_dest: 20
-  max_jobs_per_dest: 50
-  max_jobs_global: 200
-  submits_per_minute: 10
-  min_job_lifetime_s: 120
-  recycle_after_s: 7200
-  deadband_frac: 0.05
-  ramp_jobs_per_tick: 1
+submit:
+  pushgateway_url: https://xrdprom.cern.ch:2094
+  condor_pool: vocms4100.cern.ch
 ```
 
 ## CLI
@@ -93,7 +74,7 @@ tckestrel COMMAND -c/--config YAML
 | `--validate` | render, submit | `xrdhover validate job.json` |
 | `--out` / `--job-id` | render, submit | Single-cell `N=1` only. Default job dir is under `filelists_dir`. `job-id` is Pushgateway `replica`, not a Grafana dimension |
 | `--site-map` | resolve, render, submit | If the sidecar has no `rse` column. Else YAML `site_map:` or `filelists_dir/site_map.csv` |
-| `--pool` / `--schedd` | submit, jobs, rm | Override YAML `condor_pool` / `condor_schedd`. Pool is the collector (`-pool`), not a schedd |
+| `--pool` / `--schedd` | submit, jobs, rm | Override YAML `submit.condor_pool` / `submit.condor_schedd`. Pool is the collector (`-pool`), not a schedd |
 | `--arch` | payload | Default `linux-amd64` (el9) |
 
 ```sh
@@ -107,8 +88,6 @@ uv run tckestrel rm --config examples/controller.yaml
 
 `resolve` needs a CMS VOMS proxy (`source /cvmfs/cms.cern.ch/rucio/setup.sh`). Packaged client endpoints: `cms-rucio.cern.ch`, `x509_proxy`. `ca_cert` from `X509_CERT_DIR`, then CVMFS grid certs, then `/etc/grid-security/certificates`. Override with `RUCIO_CONFIG`.
 
-`plan.chunk_bytes` is one XRootD `Read()` (`pattern.read_size`, default 8 MB, max 8 MB). `plan.max_bytes` is bytes from one file. `plan.target_rate_sum_gbps` scales the Spark matrix. A submit takes LFNs for `cell_rate × job_duration_s`, not the whole sidecar.
-
 ## payload
 
 Fetch the [linux-amd64 release](https://github.com/dynamic-entropy/xrdhover/releases) if that file is missing. That artifact name means **el9 amd64** (glibc 2.34, OpenSSL 3). An el10-built tarball will fail on `rhel9` glideins (`GLIBC_` / `GLIBCXX_`). Condor transfers the file as input; `run_xrdhover.sh` is the executable. The WN glidein does not provide `libXrdCl.so.6`. The wrapper cmsenv’s `cmssw` (default `CMSSW_20_1_0_pre2`, XRootD 6.0.2 on el9) so that library is on `LD_LIBRARY_PATH`. 15.x–20.0 CMSSW still ship XRootD 5 and will not load the binary.
@@ -116,8 +95,8 @@ Fetch the [linux-amd64 release](https://github.com/dynamic-entropy/xrdhover/rele
 | YAML key | Default |
 |---|---|
 | `payload.xrdhover_version` | `latest` |
-| `payload.xrdhover_dir` | `$HOME/vendor/xrdhover` |
-| `payload.xrdhover` | (unset; pin a file) |
+| `payload.cache_dir` | `$HOME/vendor/xrdhover` |
+| `payload.binary` | (unset; pin a file) |
 | `payload.cmssw` | `CMSSW_20_1_0_pre2` (XRootD 6.0.2; must stay 6.x) |
 | `payload.required_os` | `rhel9` (must match `cmssw` arch) |
 
@@ -127,7 +106,7 @@ Fetch the [linux-amd64 release](https://github.com/dynamic-entropy/xrdhover/rele
 |---|---|
 | `executable` | `run_xrdhover.sh` (CMSSW cmsenv, then `xrdhover`) |
 | `transfer_executable` | `true` |
-| `arguments` | `-C CMSSW_20_1_0_pre2 -- run job.json` (`cmssw` in the YAML) |
+| `arguments` | `-C CMSSW_20_1_0_pre2 -- run job.json` (`payload.cmssw`) |
 | `transfer_input_files` | `job.json, files.txt`, plus the xrdhover binary |
 | `should_transfer_output` | `YES` (`results/` and stdout/stderr back to the job dir) |
 | `when_to_transfer_output` | `ON_EXIT_OR_EVICT` |
@@ -138,7 +117,7 @@ Fetch the [linux-amd64 release](https://github.com/dynamic-entropy/xrdhover/rele
 | `request_cpus` | `submit.request_cpus` (default `1`) |
 | `request_memory` | `submit.request_memory_mb` (default `2048`) |
 | `request_disk` | `submit.request_disk_mb` (default `2048`) |
-| `keep_claim_idle` | `submit.keep_claim_idle` (default `600` seconds) |
+| `keep_claim_idle` | `submit.keep_claim_idle_s` (default `600` seconds) |
 | `+DESIRED_Sites` | dest CMS site (where the job runs) |
 | `+REQUIRED_OS` | `payload.required_os` (default `rhel9`) |
 | `+DesiredOS` | `REQUIRED_OS` (CMS Connect, same as test.jdl) |

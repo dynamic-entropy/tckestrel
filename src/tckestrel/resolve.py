@@ -117,7 +117,7 @@ def _stamp(rse: str, lfns: list[str], backend: RucioBackend, cache: PrefixCache)
 
 
 def sidecar_target_bytes(rate_gbps: float, duration_s: int) -> int:
-    """Unique bytes for one job wall at the (scaled) cell rate. Not ``chunk_bytes``."""
+    """Unique bytes for one job wall at the (scaled) cell rate. Not ``read_size_bytes``."""
     if rate_gbps <= 0:
         raise ResolveError("cell rate_gbps must be > 0")
     if duration_s < 1:
@@ -175,7 +175,7 @@ def resolve_cell(
     except CampaignError as exc:
         raise ResolveError(str(exc)) from exc
     chosen = choose_sidecar_rows(
-        rows, sidecar_target_bytes(planned_cell_rate(config, source, dest), config.job_duration_s)
+        rows, sidecar_target_bytes(planned_cell_rate(config, source, dest), config.plan.job_duration_s)
     )
     lfns = [row.lfn for row in chosen]
     rse = pick_rse(

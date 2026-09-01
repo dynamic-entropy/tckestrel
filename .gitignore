@@ -223,8 +223,9 @@ __marimo__/
 /table_dump_format_and_sample
 /2026-08-28/
 
-# Docs
-/docs/
+# Docs (keep local notes private; configuration.md is the YAML contract)
+/docs/*
+!/docs/configuration.md
 /examples/
 
 # Editor

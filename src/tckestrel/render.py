@@ -59,7 +59,7 @@ def format_duration(seconds: int) -> str:
 
 def format_size(n: int) -> str:
     if n < 1:
-        raise RenderError("max_bytes / chunk_bytes (read_size) must be >= 1")
+        raise RenderError("plan.max_bytes_per_file / plan.read_size_bytes must be >= 1")
     for unit, scale in (
         ("GiB", 1024**3),
         ("GB", 10**9),
@@ -89,9 +89,9 @@ def run_id_for(source: str, dest: str) -> str:
 
 def pattern_max_bytes(config: Config) -> int:
     """Bytes to read from one file (session). Not the XRootD read size."""
-    if config.max_bytes < 1:
-        raise RenderError("max_bytes must be >= 1 (bytes per file, not read_size)")
-    return config.max_bytes
+    if config.plan.max_bytes_per_file < 1:
+        raise RenderError("plan.max_bytes_per_file must be >= 1 (bytes per file, not read_size)")
+    return config.plan.max_bytes_per_file
 
 
 def default_out_dir(config: Config, source: str, dest: str, job_id: str) -> Path:
@@ -119,14 +119,14 @@ def build_workload(
         raise RenderError(f"endpoint is not root:// : {resolved.endpoint}")
     rate = format_si_bit_rate(cell.job_rate_gbps)
     size = format_size(pattern_max_bytes(config))
-    read_size = format_size(config.chunk_bytes)
+    read_size = format_size(config.plan.read_size_bytes)
     if size == "auto":
         raise RenderError("pattern.max_bytes must not be auto")
     name = link_id(resolved.source, resolved.dest)
     return {
         "schema_version": 1,
         "run_id": run_id_for(resolved.source, resolved.dest),
-        "duration": format_duration(config.job_duration_s),
+        "duration": format_duration(config.plan.job_duration_s),
         "seed": 1,
         "auth": {"mode": "x509"},
         "targets": [
@@ -151,11 +151,11 @@ def build_workload(
         },
         "sinks": {
             "results_dir": "results",
-            "snapshot_interval": format_duration(config.snapshot_interval_s),
+            "snapshot_interval": format_duration(config.submit.snapshot_interval_s),
             "job_id": job_id,
             "write_results": True,
             "pushgateway": {
-                "url": config.prom_url,
+                "url": config.submit.pushgateway_url,
                 "job": "xrdhover",
                 "keep": False,
             },

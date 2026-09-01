@@ -2,9 +2,9 @@ campaign_id: test-6cell-matrix
 matrix: matrix.csv
 
 plan:
-  max_rate_per_job_gbps: 0.1
-  default_inflight: 1
-  chunk_bytes: 8000000   # one XRootD Read(); max 8 MB
+  max_job_rate_gbps: 0.1
+  min_jobs_per_cell: 1
+  read_size_bytes: 8000000
 
 submit:
-  prom_url: http://127.0.0.1:9091
+  pushgateway_url: http://127.0.0.1:9091

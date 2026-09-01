@@ -43,8 +43,8 @@ def default_condor(
     pool: str | None = None,
     schedd: str | None = None,
 ) -> CondorBackend:
-    chosen_pool = pool or (config.condor_pool if config else None)
-    chosen_schedd = schedd or (config.condor_schedd if config else None)
+    chosen_pool = pool or (config.submit.condor_pool if config else None)
+    chosen_schedd = schedd or (config.submit.condor_schedd if config else None)
     return LiveCondor(pool=chosen_pool, schedd=chosen_schedd)
 
 
@@ -74,18 +74,18 @@ def make_spec(
         run_id=rendered.run_id,
         job_id=rendered.job_id,
         proxy=proxy_path(),
-        required_os=config.required_os,
-        request_cpus=config.request_cpus,
-        request_memory_mb=config.request_memory_mb,
-        request_disk_mb=config.request_disk_mb,
+        required_os=config.payload.required_os,
+        request_cpus=config.submit.request_cpus,
+        request_memory_mb=config.submit.request_memory_mb,
+        request_disk_mb=config.submit.request_disk_mb,
         event_log=(
             config.filelists_dir / ".tckestrel" / "condor.log"
             if config.filelists_dir is not None
             else None
         ),
         payload=payload.resolve(),
-        cmssw=config.cmssw,
-        keep_claim_idle_s=config.keep_claim_idle_s,
+        cmssw=config.payload.cmssw,
+        keep_claim_idle_s=config.submit.keep_claim_idle_s,
     )
 
 

@@ -2,8 +2,8 @@ import os
 from pathlib import Path
 
 import pytest
-import yaml
 
+from helpers import dump_controller
 from tckestrel.cache import PrefixCache
 from tckestrel.config import load_config
 from tckestrel.campaign import SidecarRow
@@ -173,21 +173,13 @@ def test_old_premix_uses_site_map(tmp_path: Path) -> None:
         "source,T1_DE_KIT\nT2_CH_CERN,0.017\n",
         encoding="utf-8",
     )
-    yaml_path = tmp_path / "controller.yaml"
-    yaml_path.write_text(
-        yaml.safe_dump(
-            {
-                "campaign_id": "old",
-                "matrix": str(matrix),
-                "filelists_dir": str(campaign),
-                "site_map": str(site_map),
-                "max_rate_per_job_gbps": 0.1,
-                "default_inflight": 1,
-                "chunk_bytes": 1,
-                "prom_url": "http://127.0.0.1:9091",
-            }
-        ),
-        encoding="utf-8",
+    yaml_path = dump_controller(
+        tmp_path / "controller.yaml",
+        campaign_id="old",
+        matrix=matrix,
+        filelists_dir=campaign,
+        site_map=site_map,
+        plan={"read_size_bytes": 1},
     )
 
     seen: list[str] = []

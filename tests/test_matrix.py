@@ -28,7 +28,7 @@ def test_rejects_rse_dest_headers(fixtures_dir: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("rate", "max_rate", "default_inflight", "n", "job_rate"),
+    ("rate", "max_rate", "min_jobs_per_cell", "n", "job_rate"),
     [
         (0.017, 0.1, 1, 1, 0.017),
         (1.0, 0.1, 1, 10, 0.1),
@@ -38,14 +38,14 @@ def test_rejects_rse_dest_headers(fixtures_dir: Path) -> None:
 def test_n_and_job_rate(
     rate: float,
     max_rate: float,
-    default_inflight: int,
+    min_jobs_per_cell: int,
     n: int,
     job_rate: float,
 ) -> None:
-    got_n = derive_n(rate, max_rate, default_inflight)
+    got_n = derive_n(rate, max_rate, min_jobs_per_cell)
     got_rate = derive_job_rate(rate, got_n)
     assert got_n == n
-    assert got_n >= default_inflight
+    assert got_n >= min_jobs_per_cell
     assert got_rate <= max_rate + 1e-12
     assert got_rate == pytest.approx(job_rate)
     assert got_n * got_rate == pytest.approx(rate)

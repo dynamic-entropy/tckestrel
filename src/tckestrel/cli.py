@@ -361,8 +361,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     condor = argparse.ArgumentParser(add_help=False)
-    condor.add_argument("--pool", help="collector (-pool); default YAML condor_pool")
-    condor.add_argument("--schedd", help="remote schedd (-remote); default YAML condor_schedd")
+    condor.add_argument("--pool", help="collector (-pool); default YAML submit.condor_pool")
+    condor.add_argument(
+        "--schedd", help="remote schedd (-remote); default YAML submit.condor_schedd"
+    )
 
     job_files = argparse.ArgumentParser(add_help=False)
     job_files.add_argument(
