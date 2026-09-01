@@ -1,0 +1,13 @@
+campaign_id: test-onelink
+matrix: one_link.csv
+filelists_dir: campaign
+
+max_rate_per_job_gbps: 0.1
+default_inflight: 1
+chunk_bytes: 8000000   # one XRootD Read(); max 8 MB
+max_bytes: 32000000    # bytes from one file
+
+job_duration_s: 7200
+
+prom_url: http://127.0.0.1:9091
+recycle_after_s: 7200

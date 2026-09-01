@@ -145,8 +145,6 @@ def submit_cell(
 def submit_plan(
     config: Config,
     *,
-    source: str | None = None,
-    dest: str | None = None,
     job_id: str | None = None,
     out_dir: Path | None = None,
     backend: RucioBackend | None = None,
@@ -157,15 +155,13 @@ def submit_plan(
     validate: bool = False,
     submit: bool = False,
 ) -> list[SubmittedJob]:
-    """Submit ``N`` jobs per cell. Each holds ``job_rate_gbps = R / N``."""
+    """Submit ``N`` jobs per matrix cell. Each holds ``job_rate_gbps = R / N``.
+
+    The matrix is the cell selector. ``--job-id`` / ``--out`` apply only when
+    the plan is a single cell with ``N = 1``.
+    """
     store = cache if cache is not None else PrefixCache(cache_file(config))
     rows = build_plan(config)
-    if source is not None or dest is not None:
-        if source is None or dest is None:
-            raise SubmitError("cell must be SOURCE,DEST")
-        rows = [row for row in rows if row.source == source and row.dest == dest]
-        if not rows:
-            raise SubmitError(f"no matrix cell {source},{dest}")
     if not rows:
         raise SubmitError("plan has no cells to submit")
     missing = [f"{row.source},{row.dest}" for row in rows if row.missing]
@@ -173,11 +169,12 @@ def submit_plan(
         raise SubmitError(f"no links.csv row or sidecar for {', '.join(missing)}")
 
     binary = payload or ensure_payload(config, payload_arch_for_dest(rows[0].dest))
+    single = len(rows) == 1 and rows[0].n_jobs == 1
     jobs: list[SubmittedJob] = []
     for row in rows:
         for index in range(row.n_jobs):
             if row.n_jobs == 1:
-                issued = job_id
+                issued = job_id if single else None
             else:
                 # Distinct sinks.job_id → Pushgateway replica. Same run_id/src_dst
                 # for the cell. Do not reuse one job_id across N or they clobber.
@@ -188,7 +185,7 @@ def submit_plan(
                     row.source,
                     row.dest,
                     job_id=issued,
-                    out_dir=out_dir if len(rows) == 1 else None,
+                    out_dir=out_dir if single else None,
                     backend=backend,
                     cache=store,
                     site_map=site_map,

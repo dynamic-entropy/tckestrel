@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from tckestrel.cli import main
 from tckestrel.condor import RecordingCondor, SubmitSpec
 from tckestrel.payload import Payload
@@ -89,9 +91,7 @@ def test_resolve_cli_uses_mock_backend(
         [
             "resolve",
             "--config",
-            str(fixtures_dir / "controller.yaml"),
-            "--cell",
-            "T2_CH_CERN,T1_US_FNAL",
+            str(fixtures_dir / "one_link.yaml"),
         ]
     )
     captured = capsys.readouterr()
@@ -120,9 +120,7 @@ def test_render_cli_writes_job(
         [
             "render",
             "--config",
-            str(fixtures_dir / "controller.yaml"),
-            "--cell",
-            "T2_CH_CERN,T1_US_FNAL",
+            str(fixtures_dir / "one_link.yaml"),
             "--out",
             str(out),
             "--job-id",
@@ -167,13 +165,12 @@ def test_submit_cli_dry_run_writes_sub(
         [
             "submit",
             "--config",
-            str(fixtures_dir / "controller.yaml"),
-            "--cell",
-            "T2_CH_CERN,T1_US_FNAL",
+            str(fixtures_dir / "one_link.yaml"),
             "--out",
             str(out),
             "--job-id",
             "cli.sub.0",
+            "--dry-run",
         ]
     )
     captured = capsys.readouterr()
@@ -218,14 +215,11 @@ def test_submit_cli_queues_with_mock(
         [
             "submit",
             "--config",
-            str(fixtures_dir / "controller.yaml"),
-            "--cell",
-            "T2_CH_CERN,T1_US_FNAL",
+            str(fixtures_dir / "one_link.yaml"),
             "--out",
             str(tmp_path / "queued"),
             "--job-id",
             "cli.q.0",
-            "--submit",
         ]
     )
     captured = capsys.readouterr()
@@ -290,7 +284,6 @@ def test_submit_cli_queues_plan(
             "submit",
             "--config",
             str(fixtures_dir / "controller.yaml"),
-            "--submit",
         ]
     )
     captured = capsys.readouterr()
@@ -328,8 +321,6 @@ def test_jobs_and_rm_cli(
             "rm",
             "--config",
             str(fixtures_dir / "controller.yaml"),
-            "--cell",
-            "T2_CH_CERN,T1_US_FNAL",
         ]
     )
     captured = capsys.readouterr()
@@ -383,12 +374,24 @@ def test_resolve_cli_bad_rucio_config(
         [
             "resolve",
             "--config",
-            str(fixtures_dir / "controller.yaml"),
-            "--cell",
-            "T2_CH_CERN,T1_US_FNAL",
+            str(fixtures_dir / "one_link.yaml"),
         ]
     )
     captured = capsys.readouterr()
     assert code == 1
     assert "Traceback" not in captured.err
     assert "Rucio" in captured.err
+
+
+def test_cli_rejects_cell_flag(fixtures_dir: Path) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(
+            [
+                "submit",
+                "--config",
+                str(fixtures_dir / "one_link.yaml"),
+                "--cell",
+                "T2_CH_CERN,T1_US_FNAL",
+            ]
+        )
+    assert exc.value.code == 2

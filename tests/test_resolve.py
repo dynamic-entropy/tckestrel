@@ -7,7 +7,7 @@ import yaml
 from tckestrel.cache import PrefixCache
 from tckestrel.config import load_config
 from tckestrel.campaign import SidecarRow
-from tckestrel.resolve import ResolveError, choose_sidecar_rows, resolve_cell
+from tckestrel.resolve import ResolveError, choose_sidecar_rows, resolve_cell, resolve_plan
 from tckestrel.rucio_backend import (
     MappingBackend,
     ensure_rucio_config,
@@ -72,6 +72,19 @@ def test_resolve_fixture_cell(fixtures_dir: Path, tmp_path: Path) -> None:
     assert result.pfns[0].path == "/eos/cms/store/mc/PREMIX/cern-fnal.root"
     assert result.cache_hit is False
     assert backend.calls == 1
+
+
+def test_resolve_plan_walks_matrix(fixtures_dir: Path, tmp_path: Path) -> None:
+    config = load_config(fixtures_dir / "one_link.yaml")
+    backend = MappingBackend({CERN_LFN: CERN_PFN})
+    results = resolve_plan(
+        config,
+        backend=backend,
+        cache=PrefixCache(tmp_path / "cache.json"),
+    )
+    assert len(results) == 1
+    assert results[0].source == "T2_CH_CERN"
+    assert results[0].dest == "T1_US_FNAL"
 
 
 def test_aaa_host_fails(fixtures_dir: Path, tmp_path: Path) -> None:

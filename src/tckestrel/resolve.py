@@ -39,20 +39,6 @@ def default_backend() -> RucioBackend:
     return LiveRucio()
 
 
-def parse_cell(raw: str) -> tuple[str, str]:
-    text = raw.strip()
-    if "," in text:
-        source, dest = text.split(",", 1)
-    elif "__" in text:
-        source, dest = text.split("__", 1)
-    else:
-        raise ResolveError("cell must be SOURCE,DEST")
-    source, dest = source.strip(), dest.strip()
-    if not source or not dest:
-        raise ResolveError("cell must be SOURCE,DEST")
-    return source, dest
-
-
 def cache_file(config: Config) -> Path:
     if config.filelists_dir is None:
         raise ResolveError("filelists_dir is required to resolve PFNs")
@@ -218,3 +204,31 @@ def resolve_cell(
         pfns=pfns,
         cache_hit=cache_hit,
     )
+
+
+def resolve_plan(
+    config: Config,
+    *,
+    backend: RucioBackend | None = None,
+    cache: PrefixCache | None = None,
+    site_map: Path | None = None,
+) -> list[ResolvedSlice]:
+    """Stamp every planned matrix cell. The matrix is the cell selector."""
+    rows = build_plan(config)
+    if not rows:
+        raise ResolveError("plan has no cells to resolve")
+    missing = [f"{row.source},{row.dest}" for row in rows if row.missing]
+    if missing:
+        raise ResolveError(f"no links.csv row or sidecar for {', '.join(missing)}")
+    store = cache if cache is not None else PrefixCache(cache_file(config))
+    return [
+        resolve_cell(
+            config,
+            row.source,
+            row.dest,
+            backend=backend,
+            cache=store,
+            site_map=site_map,
+        )
+        for row in rows
+    ]

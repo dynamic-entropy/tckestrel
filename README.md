@@ -28,45 +28,49 @@ Rucio and HTCondor are imported when the corresponding command runs.
 
 YAML paths (`matrix`, `filelists_dir`, `site_map`, `xrdhover`, `xrdhover_dir`) are resolved relative to the config file, then the current working directory. `$HOME` and `~` are expanded.
 
-## plan
+## CLI
 
-```sh
-uv run tckestrel plan --config tests/fixtures/controller.yaml
+```text
+tckestrel COMMAND -c/--config YAML
 ```
 
-One row per matrix cell: `source`, `dest`, `rate_gbps`, `N`, `job_rate_gbps`, `rse`, `n_files`, `shortfall`.
+| Command | What it does |
+|---|---|
+| `plan` | Print cells, `N`, job rate, sidecar counts |
+| `payload` | Fetch xrdhover into `$HOME/vendor/xrdhover/<version>/linux-amd64/` |
+| `resolve` | Stamp planned LFNs with pinned `root://` PFNs (rejects AAA) |
+| `render` | Write `job.json` + `files.txt` for every planned cell |
+| `submit` | Resolve, render, write `job.sub`, queue N jobs per cell |
+| `jobs` | Query the campaign on the schedd |
+| `rm` | `condor_rm` the campaign |
 
-## resolve
+`submit` already resolves and renders. `resolve` / `render` are preflight. The matrix selects cells.
 
-Stamp a cell's LFNs with pinned `root://` PFNs (`RSEClient.lfns2pfns`, then a per-RSE prefix cache). AAA redirectors are rejected.
-
-Uses the packaged CMS client endpoints (`cms-rucio.cern.ch`, `x509_proxy`). `ca_cert` is taken from `X509_CERT_DIR`, then `/cvmfs/cms.cern.ch/grid/etc/grid-security/certificates`, then `/etc/grid-security/certificates`. Override the client file with `RUCIO_CONFIG`. Requires a CMS VOMS proxy.
+| Flag | Commands | Notes |
+|---|---|---|
+| `--dry-run` | submit | Write files; do not contact the schedd |
+| `--validate` | render, submit | `xrdhover validate job.json` |
+| `--out` / `--job-id` | render, submit | Single-cell `N=1` only. Default job dir is under `filelists_dir`. `job-id` is Pushgateway `replica`, not a Grafana dimension |
+| `--site-map` | resolve, render, submit | If the sidecar has no `rse` column. Else YAML `site_map:` or `filelists_dir/site_map.csv` |
+| `--pool` / `--schedd` | submit, jobs, rm | Override YAML `condor_pool` / `condor_schedd`. Pool is the collector (`-pool`), not a schedd |
+| `--arch` | payload | Default `linux-amd64` (el9) |
 
 ```sh
-uv run tckestrel resolve --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FNAL
+uv run tckestrel plan --config examples/controller.yaml
+uv run tckestrel payload --config examples/controller.yaml
+uv run tckestrel submit --config examples/controller.yaml --dry-run
+uv run tckestrel submit --config examples/controller.yaml
+uv run tckestrel jobs --config examples/controller.yaml
+uv run tckestrel rm --config examples/controller.yaml
 ```
 
-Lists without an `rse` column use `--site-map`, `site_map:` in the YAML, or `filelists_dir/site_map.csv`.
+`resolve` needs a CMS VOMS proxy (`source /cvmfs/cms.cern.ch/rucio/setup.sh`). Packaged client endpoints: `cms-rucio.cern.ch`, `x509_proxy`. `ca_cert` from `X509_CERT_DIR`, then CVMFS grid certs, then `/etc/grid-security/certificates`. Override with `RUCIO_CONFIG`.
 
-## render
-
-Write `job.json` and `files.txt` for one cell.
-
-```sh
-uv run tckestrel render --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FNAL
-```
-
-`--out` sets the output directory. `--job-id` sets `sinks.job_id` (default: `SOURCE__DEST`; `SOURCE__DEST__k` when a cell has `N > 1`). That value is Pushgateway grouping `replica` so N jobs on one link do not overwrite each other — it is not a Grafana dimension. `--validate` runs `xrdhover validate` on the written JSON.
-
-`chunk_bytes` is one XRootD `Read()` (`pattern.read_size`, default 8 MB, max 8 MB). `max_bytes` is bytes from one file (`pattern.max_bytes`, default 32 MB). `target_rate_sum_gbps` scales the Spark matrix. A submit takes LFNs for `cell_rate × job_duration_s`, not the whole sidecar.
+`chunk_bytes` is one XRootD `Read()` (`pattern.read_size`, default 8 MB, max 8 MB). `max_bytes` is bytes from one file. `target_rate_sum_gbps` scales the Spark matrix. A submit takes LFNs for `cell_rate × job_duration_s`, not the whole sidecar.
 
 ## payload
 
-Fetch the [linux-amd64 release](https://github.com/dynamic-entropy/xrdhover/releases) into `$HOME/vendor/xrdhover/<version>/<arch>/xrdhover` if that file is missing. That artifact name means **el9 amd64** (glibc 2.34, OpenSSL 3). An el10-built tarball will fail on `rhel9` glideins (`GLIBC_` / `GLIBCXX_`). Condor transfers the file as input; `run_xrdhover.sh` is the executable. The WN glidein does not provide `libXrdCl.so.6`. The wrapper cmsenv’s `cmssw` (default `CMSSW_20_1_0_pre2`, XRootD 6.0.2 on el9) so that library is on `LD_LIBRARY_PATH`. 15.x–20.0 CMSSW still ship XRootD 5 and will not load the binary.
-
-```sh
-uv run tckestrel payload --config examples/controller.yaml
-```
+Fetch the [linux-amd64 release](https://github.com/dynamic-entropy/xrdhover/releases) if that file is missing. That artifact name means **el9 amd64** (glibc 2.34, OpenSSL 3). An el10-built tarball will fail on `rhel9` glideins (`GLIBC_` / `GLIBCXX_`). Condor transfers the file as input; `run_xrdhover.sh` is the executable. The WN glidein does not provide `libXrdCl.so.6`. The wrapper cmsenv’s `cmssw` (default `CMSSW_20_1_0_pre2`, XRootD 6.0.2 on el9) so that library is on `LD_LIBRARY_PATH`. 15.x–20.0 CMSSW still ship XRootD 5 and will not load the binary.
 
 | YAML key | Default |
 |---|---|
@@ -76,16 +80,7 @@ uv run tckestrel payload --config examples/controller.yaml
 | `cmssw` | `CMSSW_20_1_0_pre2` (XRootD 6.0.2; must stay 6.x) |
 | `required_os` | `rhel9` (must match `cmssw` arch) |
 
-## submit
-
-Write `job.sub` next to `job.json` and `files.txt`. Without `--cell`, walk the plan and queue **N jobs per cell** (`N` from the YAML / matrix). `--cell SOURCE,DEST` limits that to one link. `--submit` contacts the schedd.
-
-```sh
-uv run tckestrel submit --config examples/controller.yaml --submit
-uv run tckestrel submit --config examples/controller.yaml --cell T2_CH_CERN,T1_US_FNAL --submit
-uv run tckestrel jobs --config examples/controller.yaml
-uv run tckestrel rm --config examples/controller.yaml
-```
+## submit file
 
 | Submit attribute | Value |
 |---|---|
@@ -98,7 +93,7 @@ uv run tckestrel rm --config examples/controller.yaml
 | `output` / `error` | `logs/$(Cluster).$(Process).{out,err}` under the job dir |
 | `log` | `{filelists_dir}/.tckestrel/condor.log` (campaign event log) |
 | `job_machine_attrs` | `GLIDEIN_CMSSite` (copied onto the job as `MachineAttrGLIDEIN_CMSSite0`) |
-| `x509userproxy` | `$ENV(X509_USER_PROXY)` |
+| `x509userproxy` | `$ENV(X509_USER_PROXY)` when that file exists |
 | `request_cpus` | `request_cpus` in the YAML (default `1`) |
 | `request_memory` | `request_memory_mb` (default `2048`) |
 | `request_disk` | `request_disk_mb` (default `2048`) |
@@ -106,11 +101,6 @@ uv run tckestrel rm --config examples/controller.yaml
 | `+DESIRED_Sites` | dest CMS site (where the job runs) |
 | `+REQUIRED_OS` | `required_os` in the YAML (default `rhel9`) |
 | `+DesiredOS` | `REQUIRED_OS` (CMS Connect, same as test.jdl) |
-| `x509userproxy` | `X509_USER_PROXY` when that file exists |
-
-`jobs` and `rm` select on `TckestrelCampaign`, optionally `TckestrelSource` and `TckestrelDest`.
-
-`condor_pool` / `--pool` is `condor_submit -pool …` (and the same flag on `jobs` / `rm`). That names a collector, not a schedd. `condor_schedd` / `--schedd` is optional and adds `-remote` / `-name`.
 
 ## Tests
 

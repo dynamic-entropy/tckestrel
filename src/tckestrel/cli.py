@@ -21,14 +21,13 @@ from tckestrel.payload import (
     payload_arch_for_dest,
 )
 from tckestrel.plan import PlanError, PlannedCell, build_plan, has_missing
-from tckestrel.render import RenderError, RenderedJob, render_cell, validate_workload
+from tckestrel.render import RenderError, RenderedJob, link_id, render_cell, validate_workload
 from tckestrel.resolve import (
     ResolveError,
     ResolvedSlice,
     cache_file,
     default_backend,
-    parse_cell,
-    resolve_cell,
+    resolve_plan,
 )
 from tckestrel.submit import SubmitError, SubmittedJob, default_condor, submit_plan
 
@@ -95,16 +94,12 @@ def format_resolve(result: ResolvedSlice) -> str:
 
 def _cmd_resolve(
     config_path: str,
-    cell: str,
     site_map: str | None,
 ) -> int:
     try:
         config = load_config(config_path)
-        source, dest = parse_cell(cell)
-        result = resolve_cell(
+        results = resolve_plan(
             config,
-            source,
-            dest,
             backend=default_backend(),
             cache=PrefixCache(cache_file(config)),
             site_map=Path(site_map) if site_map else None,
@@ -112,7 +107,7 @@ def _cmd_resolve(
     except (ConfigError, MatrixError, CampaignError, PlanError, ResolveError) as exc:
         print(f"tckestrel resolve: {exc}", file=sys.stderr)
         return 1
-    print(format_resolve(result))
+    print("\n\n".join(format_resolve(result) for result in results))
     return 0
 
 
@@ -127,11 +122,10 @@ def format_payload(result: Payload) -> str:
     )
 
 
-def _cmd_payload(config_path: str, arch: str | None, dest: str | None) -> int:
+def _cmd_payload(config_path: str, arch: str | None) -> int:
     try:
         config = load_config(config_path)
-        chosen = arch or (payload_arch_for_dest(dest) if dest else DEFAULT_ARCH)
-        result = ensure_payload(config, chosen)
+        result = ensure_payload(config, arch or DEFAULT_ARCH)
     except (ConfigError, PayloadError) as exc:
         print(f"tckestrel payload: {exc}", file=sys.stderr)
         return 1
@@ -156,7 +150,6 @@ def format_render(result: RenderedJob) -> str:
 
 def _cmd_render(
     config_path: str,
-    cell: str,
     site_map: str | None,
     out: str | None,
     job_id: str | None,
@@ -164,24 +157,39 @@ def _cmd_render(
 ) -> int:
     try:
         config = load_config(config_path)
-        source, dest = parse_cell(cell)
+        rows = build_plan(config)
+        if not rows:
+            raise RenderError("plan has no cells to render")
+        missing = [f"{row.source},{row.dest}" for row in rows if row.missing]
+        if missing:
+            raise RenderError(f"no links.csv row or sidecar for {', '.join(missing)}")
         xrdhover = None
         validator = None
         if validate:
-            xrdhover = ensure_payload(config, payload_arch_for_dest(dest)).path
+            xrdhover = ensure_payload(config, payload_arch_for_dest(rows[0].dest)).path
             validator = validate_workload
-        result = render_cell(
-            config,
-            source,
-            dest,
-            job_id=job_id,
-            out_dir=Path(out) if out else None,
-            backend=default_backend(),
-            cache=PrefixCache(cache_file(config)),
-            site_map=Path(site_map) if site_map else None,
-            validate=validator,
-            xrdhover=xrdhover,
-        )
+        single = len(rows) == 1 and rows[0].n_jobs == 1
+        results = []
+        for row in rows:
+            for index in range(row.n_jobs):
+                if row.n_jobs == 1:
+                    issued = job_id if single else None
+                else:
+                    issued = f"{link_id(row.source, row.dest)}__{index}"
+                results.append(
+                    render_cell(
+                        config,
+                        row.source,
+                        row.dest,
+                        job_id=issued,
+                        out_dir=Path(out) if out and single else None,
+                        backend=default_backend(),
+                        cache=PrefixCache(cache_file(config)),
+                        site_map=Path(site_map) if site_map else None,
+                        validate=validator,
+                        xrdhover=xrdhover,
+                    )
+                )
     except (
         ConfigError,
         MatrixError,
@@ -193,7 +201,7 @@ def _cmd_render(
     ) as exc:
         print(f"tckestrel render: {exc}", file=sys.stderr)
         return 1
-    print(format_render(result))
+    print("\n\n".join(format_render(result) for result in results))
     return 0
 
 
@@ -220,24 +228,19 @@ def format_submit(result: SubmittedJob) -> str:
 
 def _cmd_submit(
     config_path: str,
-    cell: str | None,
     site_map: str | None,
     out: str | None,
     job_id: str | None,
     validate: bool,
-    do_submit: bool,
+    dry_run: bool,
     pool: str | None,
     schedd: str | None,
 ) -> int:
+    do_submit = not dry_run
     try:
         config = load_config(config_path)
-        source = dest = None
-        if cell:
-            source, dest = parse_cell(cell)
         jobs = submit_plan(
             config,
-            source=source,
-            dest=dest,
             job_id=job_id,
             out_dir=Path(out) if out else None,
             backend=default_backend(),
@@ -290,19 +293,13 @@ def format_jobs(rows: list[CondorJob]) -> str:
 
 def _cmd_jobs(
     config_path: str,
-    cell: str | None,
     pool: str | None,
     schedd: str | None,
 ) -> int:
     try:
         config = load_config(config_path)
-        source = dest = None
-        if cell:
-            source, dest = parse_cell(cell)
-        rows = default_condor(config, pool=pool, schedd=schedd).query(
-            config.campaign_id, source, dest
-        )
-    except (ConfigError, ResolveError, CondorError) as exc:
+        rows = default_condor(config, pool=pool, schedd=schedd).query(config.campaign_id)
+    except (ConfigError, CondorError) as exc:
         print(f"tckestrel jobs: {exc}", file=sys.stderr)
         return 1
     print(format_jobs(rows))
@@ -311,22 +308,16 @@ def _cmd_jobs(
 
 def _cmd_rm(
     config_path: str,
-    cell: str | None,
     pool: str | None,
     schedd: str | None,
 ) -> int:
     try:
         config = load_config(config_path)
-        source = dest = None
-        if cell:
-            source, dest = parse_cell(cell)
-        removed = default_condor(config, pool=pool, schedd=schedd).remove(
-            config.campaign_id, source, dest
-        )
-    except (ConfigError, ResolveError, CondorError) as exc:
+        removed = default_condor(config, pool=pool, schedd=schedd).remove(config.campaign_id)
+    except (ConfigError, CondorError) as exc:
         print(f"tckestrel rm: {exc}", file=sys.stderr)
         return 1
-    print(f"removed {removed}  {campaign_constraint(config.campaign_id, source, dest)}")
+    print(f"removed {removed}  {campaign_constraint(config.campaign_id)}")
     return 0
 
 
@@ -348,54 +339,88 @@ def _cmd_plan(config_path: str) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="tckestrel")
-    sub = parser.add_subparsers(dest="command", required=True)
-    plan = sub.add_parser("plan", help="print cells, N, job rate, and file counts")
-    plan.add_argument("--config", required=True, help="path to controller YAML")
-    resolve = sub.add_parser("resolve", help="stamp a cell's LFNs with root:// PFNs")
-    resolve.add_argument("--config", required=True, help="path to controller YAML")
-    resolve.add_argument("--cell", required=True, help="SOURCE,DEST")
-    resolve.add_argument("--site-map", dest="site_map", help="site_map.csv when the sidecar has no rse column")
-    payload = sub.add_parser("payload", help="ensure the xrdhover release binary is on disk")
-    payload.add_argument("--config", required=True, help="path to controller YAML")
-    payload.add_argument("--arch", help="release arch (default linux-amd64)")
-    payload.add_argument("--dest", help="CMS dest site; selects arch when --arch is omitted")
-    render = sub.add_parser("render", help="write job.json and files.txt for a cell")
-    render.add_argument("--config", required=True, help="path to controller YAML")
-    render.add_argument("--cell", required=True, help="SOURCE,DEST")
-    render.add_argument("--site-map", dest="site_map", help="site_map.csv when the sidecar has no rse column")
-    render.add_argument("--out", help="directory for job.json and files.txt")
-    render.add_argument("--job-id", dest="job_id", help="sinks.job_id (default: SOURCE__DEST)")
-    render.add_argument(
+    parser = argparse.ArgumentParser(
+        prog="tckestrel",
+        description="Fleet controller for xrdhover WAN-hold jobs on HTCondor.",
+        epilog=(
+            "Workflow: plan → payload → resolve → render → submit → jobs / rm. "
+            "submit already resolves and renders; resolve/render are preflight. "
+            "The matrix selects cells. YAML holds pool/schedd/site_map."
+        ),
+    )
+    sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+
+    config = argparse.ArgumentParser(add_help=False)
+    config.add_argument("-c", "--config", required=True, help="controller YAML")
+
+    site_map = argparse.ArgumentParser(add_help=False)
+    site_map.add_argument(
+        "--site-map",
+        dest="site_map",
+        help="site_map.csv if the sidecar has no rse column (else YAML / filelists_dir)",
+    )
+
+    condor = argparse.ArgumentParser(add_help=False)
+    condor.add_argument("--pool", help="collector (-pool); default YAML condor_pool")
+    condor.add_argument("--schedd", help="remote schedd (-remote); default YAML condor_schedd")
+
+    job_files = argparse.ArgumentParser(add_help=False)
+    job_files.add_argument(
+        "--out",
+        help="write job files here (single-cell N=1 plan only; default under filelists_dir)",
+    )
+    job_files.add_argument(
+        "--job-id",
+        dest="job_id",
+        help="sinks.job_id / Pushgateway replica (single-cell N=1 only; default SOURCE__DEST)",
+    )
+    job_files.add_argument(
         "--validate",
         action="store_true",
-        help="run xrdhover validate on the written job.json",
+        help="run xrdhover validate on job.json",
     )
-    submit = sub.add_parser("submit", help="queue N jobs per cell from the plan")
-    submit.add_argument("--config", required=True, help="path to controller YAML")
-    submit.add_argument("--cell", help="SOURCE,DEST (default: all planned cells)")
-    submit.add_argument("--site-map", dest="site_map", help="site_map.csv when the sidecar has no rse column")
-    submit.add_argument("--out", help="directory for job.json, files.txt, and job.sub")
-    submit.add_argument("--job-id", dest="job_id", help="sinks.job_id (default: SOURCE__DEST)")
-    submit.add_argument("--validate", action="store_true", help="run xrdhover validate before submit")
+
+    sub.add_parser(
+        "plan",
+        parents=[config],
+        help="print cells, N, job rate, and file counts",
+    )
+    sub.add_parser(
+        "resolve",
+        parents=[config, site_map],
+        help="stamp planned LFNs with root:// PFNs",
+    )
+    payload = sub.add_parser(
+        "payload",
+        parents=[config],
+        help="fetch the xrdhover release binary if missing",
+    )
+    payload.add_argument("--arch", default=DEFAULT_ARCH, help=f"release arch (default {DEFAULT_ARCH})")
+    sub.add_parser(
+        "render",
+        parents=[config, site_map, job_files],
+        help="write job.json and files.txt for every planned cell",
+    )
+    submit = sub.add_parser(
+        "submit",
+        parents=[config, site_map, job_files, condor],
+        help="queue N jobs per cell (resolves and renders first)",
+    )
     submit.add_argument(
-        "--submit",
+        "--dry-run",
         action="store_true",
-        dest="do_submit",
-        help="contact the schedd (default is dry-run)",
+        help="write job.sub without contacting the schedd",
     )
-    submit.add_argument("--pool", help="HTCondor collector (condor_submit -pool)")
-    submit.add_argument("--schedd", help="remote schedd name (optional; adds -remote)")
-    jobs = sub.add_parser("jobs", help="query campaign jobs on the schedd")
-    jobs.add_argument("--config", required=True, help="path to controller YAML")
-    jobs.add_argument("--cell", help="SOURCE,DEST")
-    jobs.add_argument("--pool", help="HTCondor collector")
-    jobs.add_argument("--schedd", help="remote schedd name")
-    rm = sub.add_parser("rm", help="condor_rm by campaign ClassAd")
-    rm.add_argument("--config", required=True, help="path to controller YAML")
-    rm.add_argument("--cell", help="SOURCE,DEST")
-    rm.add_argument("--pool", help="HTCondor collector")
-    rm.add_argument("--schedd", help="remote schedd name")
+    sub.add_parser(
+        "jobs",
+        parents=[config, condor],
+        help="query campaign jobs on the schedd",
+    )
+    sub.add_parser(
+        "rm",
+        parents=[config, condor],
+        help="condor_rm the campaign",
+    )
     return parser
 
 
@@ -405,13 +430,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "plan":
         return _cmd_plan(args.config)
     if args.command == "resolve":
-        return _cmd_resolve(args.config, args.cell, args.site_map)
+        return _cmd_resolve(args.config, args.site_map)
     if args.command == "payload":
-        return _cmd_payload(args.config, args.arch, args.dest)
+        return _cmd_payload(args.config, args.arch)
     if args.command == "render":
         return _cmd_render(
             args.config,
-            args.cell,
             args.site_map,
             args.out,
             args.job_id,
@@ -420,18 +444,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "submit":
         return _cmd_submit(
             args.config,
-            args.cell,
             args.site_map,
             args.out,
             args.job_id,
             args.validate,
-            args.do_submit,
+            args.dry_run,
             args.pool,
             args.schedd,
         )
     if args.command == "jobs":
-        return _cmd_jobs(args.config, args.cell, args.pool, args.schedd)
+        return _cmd_jobs(args.config, args.pool, args.schedd)
     if args.command == "rm":
-        return _cmd_rm(args.config, args.cell, args.pool, args.schedd)
+        return _cmd_rm(args.config, args.pool, args.schedd)
     parser.error(f"unknown command: {args.command}")
     return 2
